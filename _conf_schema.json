@@ -1,0 +1,56 @@
+{
+  "groups": {
+    "description": "推送目标",
+    "hint": "推送目标列表，格式：bot名称:MessageType:ID。例如 napcat:FriendMessage:3248569738 发送到自己的QQ。可添加多个目标。",
+    "type": "list",
+    "default": []
+  },
+  "push_time": {
+    "description": "推送时间",
+    "hint": "每天推送的时间，格式 HH:MM。多个时间用英文或中文逗号分隔，如 08:00,12:00",
+    "type": "string",
+    "default": "08:00"
+  },
+  "enable_ai": {
+    "description": "AI/人工智能新闻",
+    "hint": "是否收集 AI 领域新闻",
+    "type": "bool",
+    "default": true
+  },
+  "enable_tech": {
+    "description": "科技圈/GitHub热门",
+    "hint": "是否收集科技圈和GitHub Trending新闻",
+    "type": "bool",
+    "default": true
+  },
+  "enable_game": {
+    "description": "游戏开发",
+    "hint": "是否收集游戏开发相关新闻",
+    "type": "bool",
+    "default": true
+  },
+  "enable_llm_organize": {
+    "description": "LLM 智能整理",
+    "hint": "启用后，使用 LLM 对原始新闻进行智能分类和摘要整理，生成结构化简报。关闭则直接拼接原始数据。",
+    "type": "bool",
+    "default": true
+  },
+  "llm_model": {
+    "description": "LLM 模型（可选）",
+    "hint": "用于新闻整理的模型 ID，留空则使用 AstrBot 当前默认模型。例如 deepseek-chat、gpt-4o 等。",
+    "type": "string",
+    "default": ""
+  },
+  "api_key": {
+    "description": "API Key（可选）",
+    "hint": "部分新闻 API 接口需要 API Key 鉴权，留空则不带。",
+    "type": "string",
+    "default": ""
+  },
+  "timeout": {
+    "description": "请求超时（秒）",
+    "hint": "请求新闻 API 的超时时间",
+    "type": "int",
+    "default": 30
+  }
+}
