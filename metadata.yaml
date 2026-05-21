@@ -1,6 +1,6 @@
 name: astrbot_plugin_news_collector
 display_name: 每日新闻收集
-desc: 联网搜索 + LLM 整理。每天定时搜索新闻（AI/科技/游戏开发），使用 LLM 整理成简报并推送。
-version: v1.1.0
+desc: 联网搜索 + LLM 整理 + 自动去重。每天定时搜索新闻（AI/科技/游戏开发），去重后使用 LLM 整理成简报并推送。
+version: v1.2.0
 author: Hanako
 repo: https://github.com/your-username/astrbot_plugin_news_collector

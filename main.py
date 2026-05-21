@@ -8,6 +8,7 @@ AstrBot 每日新闻收集 + LLM 智能整理插件
 import asyncio
 import datetime
 import json
+import os
 import traceback
 from typing import Any, List, Dict, Optional
 
@@ -140,7 +141,76 @@ class NewsCollectorPlugin(Star):
             f"联网搜索={'开(' + self.search_provider + ')' if self.search_api_key else '关'}, "
             f"LLM整理={'开' if self.enable_llm else '关'}"
         )
+        # 已见新闻缓存（去重用）
+        self._seen_file = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "_seen_news.json"
+        )
+        self._seen_urls: Dict[str, str] = {}  # {url: first_seen_date}
+        self._dedup_ttl = getattr(self.config, "dedup_ttl_days", 7)
+        self._load_seen()
+
         self._task = asyncio.create_task(self._daily_task())
+
+    # ======================== 去重 ========================
+
+    def _load_seen(self):
+        """从文件加载已见新闻 URL"""
+        try:
+            if os.path.exists(self._seen_file):
+                with open(self._seen_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self._seen_urls = data.get("urls", {})
+                today = datetime.date.today()
+                cutoff = today - datetime.timedelta(days=self._dedup_ttl)
+                expired = [
+                    url for url, date_str in self._seen_urls.items()
+                    if datetime.date.fromisoformat(date_str) < cutoff
+                ]
+                for url in expired:
+                    del self._seen_urls[url]
+                if expired:
+                    logger.info(f"[去重] 清理了 {len(expired)} 条过期记录")
+        except Exception as e:
+            logger.warning(f"[去重] 加载已见文件失败: {e}")
+            self._seen_urls = {}
+
+    def _save_seen(self):
+        """保存已见新闻 URL 到文件"""
+        try:
+            with open(self._seen_file, "w", encoding="utf-8") as f:
+                json.dump({"urls": self._seen_urls, "version": 1}, f, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"[去重] 保存已见文件失败: {e}")
+
+    def _filter_fresh(self, items: List[Dict]) -> List[Dict]:
+        """过滤掉已见过的新闻，只保留新鲜的"""
+        fresh = []
+        skipped = 0
+        for item in items:
+            url = item.get("url", "")
+            if not url or len(url) < 20:
+                fresh.append(item)
+                continue
+            if url not in self._seen_urls:
+                fresh.append(item)
+            else:
+                skipped += 1
+        if skipped:
+            logger.info(f"[去重] 过滤掉了 {skipped} 条已见过的新闻")
+        return fresh
+
+    def _mark_as_seen(self, items: List[Dict]):
+        """将新闻 URL 标记为已见"""
+        today = datetime.date.today().isoformat()
+        added = 0
+        for item in items:
+            url = item.get("url", "")
+            if url and len(url) >= 20 and url not in self._seen_urls:
+                self._seen_urls[url] = today
+                added += 1
+        if added:
+            self._save_seen()
+            logger.info(f"[去重] 新增 {added} 条已见记录")
 
     # ======================== 状态 ========================
 
@@ -168,7 +238,7 @@ class NewsCollectorPlugin(Star):
                 if not self.groups:
                     logger.warning("[新闻收集] 未配置推送目标，跳过本次推送")
                     continue
-                report = await self._build_report()
+                report = await self._build_report(mark_seen=True)
                 if not report:
                     continue
                 for target in self.groups:
@@ -284,7 +354,7 @@ class NewsCollectorPlugin(Star):
         # 1. GitHub Trending（实时）
         github_items = await self._fetch_github_trending()
 
-        # 2. 联网搜索各分类新闻
+        # 2. 联网搜索各分类新闻（去重）
         search_results = {}  # {category: [items]}
         if self.search_api_key:
             categories = ["AI/人工智能", "科技圈/GitHub热门", "游戏开发"]
@@ -296,23 +366,30 @@ class NewsCollectorPlugin(Star):
                 try:
                     items = await coro
                     if items:
-                        search_results[cat] = items
+                        fresh = self._filter_fresh(items)
+                        if fresh:
+                            search_results[cat] = fresh
                 except Exception as e:
                     logger.warning(f"[新闻收集] 搜索 {cat} 失败: {e}")
 
-        # 3. 传给 LLM 生成简报
+        # 3. GitHub 数据也去重
+        github_items = self._filter_fresh(github_items)
+
+        # 4. 传给 LLM 生成简报
+        report = None
         if self.enable_llm:
             try:
                 report = await self._generate_report_via_llm(
                     date_str, weekday_cn, github_items, search_results
                 )
                 report += f"\n\n> 简报由 LLM + 联网搜索生成，内容截至 {now.strftime('%Y-%m-%d %H:%M')}"
-                return report
             except Exception as e:
                 logger.error(f"[新闻收集] LLM 生成简报失败: {e}")
 
-        # 4. 兜底
-        return self._fallback_report(date_str, weekday_cn, github_items, search_results)
+        if not report:
+            report = self._fallback_report(date_str, weekday_cn, github_items, search_results)
+
+        return report
 
     async def _generate_report_via_llm(
         self,

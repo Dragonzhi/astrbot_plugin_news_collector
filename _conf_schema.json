@@ -42,6 +42,12 @@
     "type": "string",
     "default": ""
   },
+  "dedup_ttl_days": {
+    "description": "去重保留天数",
+    "hint": "已推送的新闻 URL 会在缓存中保留此天数，期间内不会再次推送相同新闻。默认 7 天。设为 0 则关闭去重。",
+    "type": "int",
+    "default": 7
+  },
   "timeout": {
     "description": "请求超时（秒）",
     "hint": "请求搜索 API 和 GitHub API 的超时时间",
