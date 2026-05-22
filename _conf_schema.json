@@ -1,13 +1,13 @@
 {
   "groups": {
     "description": "推送目标（支持每目标指定分类）",
-    "hint": "每个目标一行。格式：平台:类型:ID[:分类1,分类2,...]\n\n示例：\nnapcat:FriendMessage:3248569738:AI/人工智能,游戏开发\nnapcat:GroupMessage:984686890:二次元/游戏,时事热点\n\n不指定分类的话走默认分类。",
+    "hint": "每个目标一行。格式：平台:类型:ID[:分类1,分类2,...]\n\n示例：\nnapcat:FriendMessage:3248569738:AI/人工智能,游戏开发\nnapcat:GroupMessage:984686890:热门游戏,时事热点\n\n不指定分类的话走默认分类。",
     "type": "list",
     "default": []
   },
   "categories": {
     "description": "默认分类列表",
-    "hint": "当目标没有指定分类时，使用此列表。可选分类：AI/人工智能、科技圈/GitHub热门、游戏开发、二次元/游戏、时事热点、科技数码",
+    "hint": "当目标没有指定分类时，使用此列表。可选分类：AI/人工智能、科技圈/GitHub热门、游戏开发、热门游戏、时事热点、科技数码",
     "type": "list",
     "default": ["AI/人工智能", "科技圈/GitHub热门", "游戏开发"]
   },

@@ -83,32 +83,34 @@ CATEGORIES = {
         "emoji": "🎮",
         "source": "web",
         "queries": [
-            "2026年 游戏开发 引擎 Unreal Godot Unity 更新",
-            "2026 game development engine update news",
+            "Unreal Engine Godot Unity 最新版本 更新 2026",
+            "2026 game engine update release new features",
         ],
     },
-    "二次元/游戏": {
+    "热门游戏": {
         "emoji": "🌟",
         "source": "web",
         "queries": [
-            "2026年 二次元 游戏 ACG 动漫 最新",
-            "2026 anime games gacha release news",
+            "2026年 原神 米哈游 最新动态 版本更新",
+            "洛克王国 2026 最新 手游 消息",
+            "地平线6 Forza Horizon 6 发售 最新",
+            "2026 热门游戏 新游 发售 最火",
         ],
     },
     "时事热点": {
         "emoji": "📰",
         "source": "web",
         "queries": [
-            "2026年 今日热点 新闻 时事",
-            "2026 hot news today world events",
+            "2026年 今日 热点 新闻 头条",
+            "today breaking news world events 2026",
         ],
     },
     "科技数码": {
         "emoji": "📱",
         "source": "web",
         "queries": [
-            "2026年 科技 数码 手机 电脑 硬件 最新",
-            "2026 tech gadgets smartphone hardware news",
+            "2026年 科技 数码 新品 手机 电脑 硬件",
+            "2026 tech gadgets smartphone hardware launch",
         ],
     },
 }
@@ -321,11 +323,18 @@ class NewsCollectorPlugin(Star):
                 logger.warning(f"[搜索] {cat} 失败: {e}")
         return results
 
+    def _today_query(self, query: str) -> str:
+        """给搜索词加日期前缀，确保搜到当天/近期的内容"""
+        now = datetime.datetime.now()
+        date_prefix = now.strftime("%Y年%m月%d日")
+        return f"{date_prefix} {query}"
+
     async def _search_category_web(self, category: str, queries: List[str]) -> List[Dict]:
         """对某个分类执行联网搜索（多查询词直到凑够数量）"""
         all_results, seen_urls = [], set()
         for query in queries:
-            items = await self._web_search(query, self.search_count)
+            date_query = self._today_query(query)
+            items = await self._web_search(date_query, self.search_count)
             for item in items:
                 url = item.get("url", "")
                 if url and url not in seen_urls:
@@ -439,13 +448,19 @@ class NewsCollectorPlugin(Star):
 
 你是一个专业新闻整理助手。根据上面提供的搜索数据，生成一份每日新闻简报。
 
-【核心要求】
+【核心要求 - 时效性】
+1. 今天是 {date_str}！优先采用搜索数据中日期最近的内容
+2. 如果搜索数据中明确标注了日期，只保留 {now.year} 年 {now.month} 月的内容
+3. 宁可少报，也不要使用过时的旧闻
+
+【核心要求 - 内容】
 1. 只使用上面提供的数据，不要编造信息
 2. 按以下分类组织（下面每个分类都要出现在简报里）：
 {cats_str}
 3. 保留每条新闻的来源 URL
-4. 每条新闻的摘要内容要完整充实，不要过于简略
+4. 每条新闻的摘要要写得完整充实（至少 2-3 句话），方便快速了解
 5. 如果某个分类有多条新闻，全部展示，不要删减
+6. 整体内容要足够丰富，不要过于简略
 
 【输出格式 - QQ 消息友好】
 不要用 Markdown，用 emoji + 符号排版。每个分类之间空一行。
@@ -454,16 +469,16 @@ class NewsCollectorPlugin(Star):
 {first_emoji} AI/人工智能
 
 🔹 标题
-完整摘要内容...
+完整摘要内容...（至少写 2-3 句话，不要只写一行）
 📎 来源：xxx
 🔗 https://xxx
 
 🔹 第二条新闻标题
-完整摘要内容...（每条新闻之间空一行）
+完整摘要内容...
 📎 来源：xxx
 🔗 https://xxx
 
-每条新闻都要有 🔗 链接。确保内容足够详细、充实。"""
+每条新闻都要有 🔗 链接。每个分类至少写 3 条新闻。如果数据充足尽量多写。"""
 
         model = self.llm_model if self.llm_model else None
         resp = await provider.text_chat(
