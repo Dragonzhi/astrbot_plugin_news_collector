@@ -431,13 +431,23 @@ class MiyoushePlugin(Star):
     async def cmd_miyoushe(self, event: AstrMessageEvent):
         try:
             yield event.plain_result("正在拉取米游社最新帖子...")
-            # 使用配置的默认分类（不包含未指定的游戏）
             default_cats = getattr(self.config, "categories", list(GAMES.keys()))
-            # 只取用户配置中实际存在的游戏
             cats = [c for c in default_cats if c in GAMES]
             cat_posts = await self._fetch_all(cats)
+            if not cat_posts:
+                yield event.plain_result(
+                    "未能拉取到任何帖子，可能原因：\n"
+                    "1. 服务器 IP 被米游社 API 限制\n"
+                    "2. 网络连接异常\n"
+                    "3. 论坛 ID 可能已变更\n"
+                    "请检查 AstrBot 日志中的 [米游社] 相关输出"
+                )
+                return
             report = await self._build_report(cats, cat_posts)
-            yield event.plain_result(report or "拉取失败，请稍后重试。")
+            if report:
+                yield event.plain_result(report)
+            else:
+                yield event.plain_result("简报为空，可能是 LLM 整理失败。")
         except Exception as e:
             yield event.plain_result(f"拉取失败: {e}")
             logger.error(traceback.format_exc())
