@@ -55,7 +55,7 @@ IMG_CDN = "https://upload-bbs.miyoushe.com"
     "astrbot_plugin_news_collector",
     "Hanako",
     "米游社新闻收集。从米游社 BBS 拉取米哈游官方新闻和公告，按目标个性化推送。",
-    "3.0.0",
+    "3.0.1",
 )
 class MiyoushePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -433,6 +433,10 @@ class MiyoushePlugin(Star):
             yield event.plain_result("正在拉取米游社最新帖子...")
             default_cats = getattr(self.config, "categories", list(GAMES.keys()))
             cats = [c for c in default_cats if c in GAMES]
+            if not cats:
+                # 配置里可能还是旧版本的分类名，兜底用默认游戏
+                cats = list(GAMES.keys())[:3]  # 原神、星铁、绝区零
+                logger.warning(f"[米游社] 配置文件中的 categories 不匹配任何游戏，使用默认: {cats}")
             cat_posts = await self._fetch_all(cats)
             if not cat_posts:
                 yield event.plain_result(
@@ -471,6 +475,8 @@ class MiyoushePlugin(Star):
             needed = set()
             for t in self.targets:
                 needed.update(t["categories"])
+            if not needed:
+                needed = set(list(GAMES.keys())[:3])
             cat_posts = await self._fetch_all(list(needed))
             all_seen = []
             for t in self.targets:
