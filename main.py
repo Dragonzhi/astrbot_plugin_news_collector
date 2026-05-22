@@ -31,11 +31,11 @@ GAMES = {
         "emoji": "🌪️",
     },
     "崩坏：星穹铁道": {
-        "forum_id": 57,
+        "forum_id": 61,
         "emoji": "🚂",
     },
     "绝区零": {
-        "forum_id": 61,
+        "forum_id": 57,
         "emoji": "⚡",
     },
     "崩坏3": {
@@ -431,9 +431,12 @@ class MiyoushePlugin(Star):
     async def cmd_miyoushe(self, event: AstrMessageEvent):
         try:
             yield event.plain_result("正在拉取米游社最新帖子...")
-            needed = list(GAMES.keys())
-            cat_posts = await self._fetch_all(needed)
-            report = await self._build_report(needed, cat_posts)
+            # 使用配置的默认分类（不包含未指定的游戏）
+            default_cats = getattr(self.config, "categories", list(GAMES.keys()))
+            # 只取用户配置中实际存在的游戏
+            cats = [c for c in default_cats if c in GAMES]
+            cat_posts = await self._fetch_all(cats)
+            report = await self._build_report(cats, cat_posts)
             yield event.plain_result(report or "拉取失败，请稍后重试。")
         except Exception as e:
             yield event.plain_result(f"拉取失败: {e}")
