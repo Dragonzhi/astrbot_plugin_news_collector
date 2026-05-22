@@ -426,13 +426,16 @@ class NewsCollectorPlugin(Star):
         if not provider:
             raise Exception("没有可用的 LLM 提供商")
 
+        now = datetime.datetime.now()
+
         # 构建素材
         parts = [f"今天是 {date_str}（{weekday_cn}）。请根据以下数据写一份每日新闻简报。"]
         for category, items in target_data.items():
             emoji = CATEGORIES.get(category, {}).get("emoji", "📌")
             parts.append(f"\n\n[{emoji} {category}]")
             for item in items:
-                parts.append(f"- {item.get('title', '')}: {item.get('snippet', '')}")
+                snippet = item.get('snippet', '')[:300]  # 截断过长数据
+                parts.append(f"- {item.get('title', '')}: {snippet}")
                 if item.get("url"):
                     parts.append(f"  URL: {item['url']}")
 
@@ -496,11 +499,14 @@ class NewsCollectorPlugin(Star):
             emoji = CATEGORIES.get(category, {}).get("emoji", "📌")
             report += f"{emoji} {category}\n\n"
             for item in items[:5]:
-                report += f"🔹 {item.get('title', '')}\n"
-                if item.get("snippet"):
-                    report += f"{item['snippet']}\n"
-                if item.get("url"):
-                    report += f"🔗 {item['url']}\n"
+                title = item.get('title', '')
+                snippet = (item.get('snippet', '') or '')[:200]  # 截断，避免转发失败
+                url = item.get('url', '')
+                report += f"🔹 {title}\n"
+                if snippet:
+                    report += f"{snippet}\n"
+                if url:
+                    report += f"🔗 {url}\n"
                 report += "\n"
         return report
 

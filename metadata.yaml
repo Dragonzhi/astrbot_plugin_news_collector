@@ -1,6 +1,6 @@
 name: astrbot_plugin_news_collector
 display_name: 每日新闻收集
 desc: 多分类新闻收集 + LLM 整理 + 按目标个性化推送。优先搜索当日最新新闻，支持热门游戏、时事热点等分类。
-version: v2.1.0
+version: v2.1.1
 author: Hanako
 repo: https://github.com/Dragonzhi/astrbot_plugin_news_collector
