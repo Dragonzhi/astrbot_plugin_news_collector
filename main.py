@@ -433,6 +433,7 @@ class NewsCollectorPlugin(Star):
             emoji = CATEGORIES.get(cat, {}).get("emoji", "📌")
             cat_lines.append(f"   {emoji} {cat}")
         cats_str = "\n".join(cat_lines)
+        first_emoji = CATEGORIES.get(list(target_data.keys())[0], {}).get("emoji", "📌") if target_data else "📌"
 
         system_prompt = f"""今天是 {date_str}（{weekday_cn}）。
 
@@ -443,19 +444,26 @@ class NewsCollectorPlugin(Star):
 2. 按以下分类组织（下面每个分类都要出现在简报里）：
 {cats_str}
 3. 保留每条新闻的来源 URL
+4. 每条新闻的摘要内容要完整充实，不要过于简略
+5. 如果某个分类有多条新闻，全部展示，不要删减
 
 【输出格式 - QQ 消息友好】
-不要用 Markdown，用 emoji + 符号排版。
+不要用 Markdown，用 emoji + 符号排版。每个分类之间空一行。
 
-示例：
-{emoji} AI/人工智能
+格式示例：
+{first_emoji} AI/人工智能
 
 🔹 标题
-摘要内容...
+完整摘要内容...
 📎 来源：xxx
 🔗 https://xxx
 
-每条新闻都要有 🔗 链接。"""
+🔹 第二条新闻标题
+完整摘要内容...（每条新闻之间空一行）
+📎 来源：xxx
+🔗 https://xxx
+
+每条新闻都要有 🔗 链接。确保内容足够详细、充实。"""
 
         model = self.llm_model if self.llm_model else None
         resp = await provider.text_chat(
