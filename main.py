@@ -1,8 +1,8 @@
 """
-AstrBot 每日新闻收集 + LLM 智能整理插件
+米游社新闻收集插件
 
-支持多分类新闻搜索、按目标个性化推送。
-每个推送目标可以指定不同的新闻分类，互不干扰。
+从米游社 BBS API 拉取米哈游官方新闻和公告，
+支持多游戏分类、按目标个性化推送、自动去重。
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import datetime
 import json
 import os
 import traceback
-from typing import Any, List, Dict, Optional, Tuple
+from typing import Any, List, Dict
 
 import aiohttp
 
@@ -21,157 +21,78 @@ from astrbot.api.provider import ProviderType
 from astrbot.core.message.message_event_result import MessageChain
 
 
-# ========== GitHub API ==========
-GITHUB_SEARCH_API = "https://api.github.com/search/repositories"
+# ========== 米游社 API ==========
+MIYOUSHE_API = "https://bbs-api.miyoushe.com/post/wapi/getForumPostList"
 
-# ========== 搜索 API 配置 ==========
-SEARCH_PROVIDERS = {
-    "bocha": {
-        "url": "https://api.bochaai.com/v1/web-search",
-        "method": "POST",
-        "headers": lambda key: {
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "Accept-Encoding": "gzip, deflate",
-        },
-        "payload": lambda q, c: {"query": q, "count": c, "summary": True},
-        "parser": lambda d: [
-            {"title": i.get("name", ""), "snippet": i.get("snippet", ""), "url": i.get("url", "")}
-            for i in (d.get("data", {}).get("webPages", {}).get("value", []))
-        ],
+# 游戏论坛配置: {分类名: {forum_id, emoji}}
+GAMES = {
+    "原神": {
+        "forum_id": 49,
+        "emoji": "🌪️",
     },
-    "tavily": {
-        "url": "https://api.tavily.com/search",
-        "method": "POST",
-        "headers": lambda key: {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        "payload": lambda q, c: {"query": q, "max_results": c, "search_depth": "basic"},
-        "parser": lambda d: [
-            {"title": i.get("title", ""), "snippet": i.get("content", ""), "url": i.get("url", "")}
-            for i in d.get("results", [])
-        ],
+    "崩坏：星穹铁道": {
+        "forum_id": 57,
+        "emoji": "🚂",
     },
-    "brave": {
-        "url": "https://api.search.brave.com/res/v1/web/search",
-        "method": "GET",
-        "headers": lambda key: {"Accept": "application/json", "X-Subscription-Token": key},
-        "payload": lambda q, c: {"q": q, "count": c},
-        "parser": lambda d: [
-            {"title": i.get("title", ""), "snippet": i.get("description", ""), "url": i.get("url", "")}
-            for i in (d.get("web", {}).get("results", []))
-        ],
+    "绝区零": {
+        "forum_id": 61,
+        "emoji": "⚡",
+    },
+    "崩坏3": {
+        "forum_id": 1,
+        "emoji": "💥",
     },
 }
 
-# ========== 新闻分类注册表 ==========
-# 每个分类可配置多个搜索词（依次搜索直到凑够数量），支持中英文
-# source: "web" 联网搜索 / "github" 用 GitHub API
-CATEGORIES = {
-    "AI/人工智能": {
-        "emoji": "🤖",
-        "source": "web",
-        "queries": [
-            "2026年 AI 人工智能 大模型 最新进展",
-            "2026 AI artificial intelligence news latest",
-        ],
-    },
-    "科技圈/GitHub热门": {
-        "emoji": "💻",
-        "source": "github",
-        "queries": [],
-    },
-    "游戏开发": {
-        "emoji": "🎮",
-        "source": "web",
-        "queries": [
-            "Unreal Engine Godot Unity 最新版本 更新 2026",
-            "2026 game engine update release new features",
-        ],
-    },
-    "热门游戏": {
-        "emoji": "🌟",
-        "source": "web",
-        "queries": [
-            "2026年 原神 米哈游 最新动态 版本更新",
-            "洛克王国 2026 最新 手游 消息",
-            "地平线6 Forza Horizon 6 发售 最新",
-            "2026 热门游戏 新游 发售 最火",
-        ],
-    },
-    "时事热点": {
-        "emoji": "📰",
-        "source": "web",
-        "queries": [
-            "2026年 今日 热点 新闻 头条",
-            "today breaking news world events 2026",
-        ],
-    },
-    "科技数码": {
-        "emoji": "📱",
-        "source": "web",
-        "queries": [
-            "2026年 科技 数码 新品 手机 电脑 硬件",
-            "2026 tech gadgets smartphone hardware launch",
-        ],
-    },
-}
+# 每游戏拉取帖子数
+POSTS_PER_GAME = 5
+
+# 图片 CDN 前缀
+IMG_CDN = "https://upload-bbs.miyoushe.com"
 
 
 @register(
     "astrbot_plugin_news_collector",
     "Hanako",
-    "多分类新闻收集 + LLM 整理 + 按目标个性化推送。支持 AI/科技/游戏/二次元/时事等分类，每个目标可指定不同分类。",
-    "2.0.0",
+    "米游社新闻收集。从米游社 BBS 拉取米哈游官方新闻和公告，按目标个性化推送。",
+    "3.0.0",
 )
-class NewsCollectorPlugin(Star):
+class MiyoushePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
 
-        # 推送时间
         self.push_time = getattr(self.config, "push_time", "08:00")
 
-        # 解析目标列表（支持每目标指定分类）
-        # 格式: platform:type:id[:分类1,分类2]
+        # 解析目标列表
         raw_groups: list = getattr(self.config, "groups", [])
-        self.targets: List[Dict] = []  # [{id, categories}]
-        default_cats = getattr(self.config, "categories", ["AI/人工智能", "科技圈/GitHub热门", "游戏开发"])
+        self.targets: List[Dict] = []
+        default_cats = getattr(self.config, "categories", list(GAMES.keys()))
         for raw in raw_groups:
-            parts = raw.rsplit(":", 1)  # 从右边切一次，分出 目标 和 分类
-            if len(parts) == 2 and parts[1].count("/") + parts[1].count(",") > 0:
-                # 有分类指定
+            parts = raw.rsplit(":", 1)
+            if len(parts) == 2 and any(c in GAMES for c in parts[1].split(",")):
                 target_id = parts[0]
-                cats = [c.strip() for c in parts[1].split(",") if c.strip() in CATEGORIES]
+                cats = [c.strip() for c in parts[1].split(",") if c.strip() in GAMES]
                 self.targets.append({"id": target_id, "categories": cats or default_cats})
             else:
-                # 无分类指定，走默认
                 self.targets.append({"id": raw, "categories": default_cats})
-
-        # 联网搜索配置
-        self.search_provider = getattr(self.config, "search_provider", "")
-        self.search_api_key = getattr(self.config, "search_api_key", "")
-        self.search_count = getattr(self.config, "search_count", 5)
 
         # LLM 配置
         self.enable_llm = getattr(self.config, "enable_llm_organize", True)
         self.llm_model = getattr(self.config, "llm_model", "")
-        self.timeout = getattr(self.config, "timeout", 30)
 
         # 去重
-        self._seen_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_seen_news.json")
+        self._seen_file = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "_seen_news.json"
+        )
         self._seen_urls: Dict[str, str] = {}
         self._dedup_ttl = getattr(self.config, "dedup_ttl_days", 7)
         self._load_seen()
 
-        # 日志
-        cats_summary = ", ".join(str(t["categories"]) for t in self.targets[:3])
         logger.info(
-            f"[新闻收集] 插件 v2 已加载: 推送时间={self.push_time}, "
-            f"目标={len(self.targets)}个, "
-            f"联网={'开' if self.search_api_key else '关'}, "
-            f"LLM={'开' if self.enable_llm else '关'}"
+            f"[米游社] 插件 v3 已加载: 推送={self.push_time}, "
+            f"目标={len(self.targets)}个, LLM={'开' if self.enable_llm else '关'}"
         )
-        logger.info(f"[新闻收集] 目标详情: {[(t['id'][:30], t['categories']) for t in self.targets]}")
-
         self._task = asyncio.create_task(self._daily_task())
 
     # ======================== 去重 ========================
@@ -184,12 +105,14 @@ class NewsCollectorPlugin(Star):
                 self._seen_urls = data.get("urls", {})
                 today = datetime.date.today()
                 cutoff = today - datetime.timedelta(days=self._dedup_ttl)
-                expired = [u for u, d in self._seen_urls.items()
-                           if datetime.date.fromisoformat(d) < cutoff]
+                expired = [
+                    u for u, d in self._seen_urls.items()
+                    if datetime.date.fromisoformat(d) < cutoff
+                ]
                 for u in expired:
                     del self._seen_urls[u]
                 if expired:
-                    logger.info(f"[去重] 清理了 {len(expired)} 条过期记录")
+                    logger.info(f"[去重] 清理 {len(expired)} 条")
         except Exception as e:
             logger.warning(f"[去重] 加载失败: {e}")
             self._seen_urls = {}
@@ -197,7 +120,7 @@ class NewsCollectorPlugin(Star):
     def _save_seen(self):
         try:
             with open(self._seen_file, "w", encoding="utf-8") as f:
-                json.dump({"urls": self._seen_urls, "version": 2}, f, ensure_ascii=False)
+                json.dump({"urls": self._seen_urls, "version": 3}, f, ensure_ascii=False)
         except Exception as e:
             logger.warning(f"[去重] 保存失败: {e}")
 
@@ -205,12 +128,12 @@ class NewsCollectorPlugin(Star):
         fresh, skipped = [], 0
         for item in items:
             url = item.get("url", "")
-            if not url or len(url) < 20 or url not in self._seen_urls:
+            if not url or url not in self._seen_urls:
                 fresh.append(item)
             else:
                 skipped += 1
         if skipped:
-            logger.info(f"[去重] 过滤了 {skipped} 条")
+            logger.info(f"[去重] 过滤 {skipped} 条")
         return fresh
 
     def _mark_as_seen(self, items: List[Dict]):
@@ -218,7 +141,7 @@ class NewsCollectorPlugin(Star):
         added = 0
         for item in items:
             url = item.get("url", "")
-            if url and len(url) >= 20 and url not in self._seen_urls:
+            if url and url not in self._seen_urls:
                 self._seen_urls[url] = today
                 added += 1
         if added:
@@ -231,48 +154,35 @@ class NewsCollectorPlugin(Star):
         while True:
             try:
                 sec = self._calc_sleep()
-                logger.info(f"[新闻收集] 距离下次推送还有 {sec/3600:.1f} 小时")
+                logger.info(f"[米游社] 距下次推送还有 {sec/3600:.1f}h")
                 await asyncio.sleep(sec)
-
                 if not self.targets:
-                    logger.warning("[新闻收集] 未配置推送目标")
                     continue
-
-                # 收集所有目标需要的分类（去重）
                 needed_cats = set()
                 for t in self.targets:
                     needed_cats.update(t["categories"])
-
-                # 按分类搜索（一次搜索，多目标复用）
-                cat_results = await self._search_all_categories(list(needed_cats))
-
-                # 按目标生成简报并推送
+                cat_posts = await self._fetch_all(list(needed_cats))
                 all_seen = []
                 for t in self.targets:
-                    report = await self._build_report_for_target(
-                        t["categories"], cat_results
-                    )
+                    report = await self._build_report(t["categories"], cat_posts)
                     if not report:
                         continue
                     try:
                         mc = MessageChain().message(report)
                         await self.context.send_message(t["id"], mc)
-                        logger.info(f"[新闻收集] 已推送到 {t['id'][:40]}")
+                        logger.info(f"[米游社] 已推送 {t['id'][:40]}")
                         await asyncio.sleep(2)
                     except Exception as e:
-                        logger.error(f"[新闻收集] 推送失败 {t['id'][:40]}: {e}")
-
-                # 标记所有用到的新闻为已见
-                for items in cat_results.values():
+                        logger.error(f"[米游社] 推送失败 {t['id'][:40]}: {e}")
+                for items in cat_posts.values():
                     all_seen.extend(items)
                 if all_seen:
                     self._mark_as_seen(all_seen)
-
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"[新闻收集] 定时任务出错: {e}")
+                logger.error(f"[米游社] 定时任务出错: {e}")
                 traceback.print_exc()
                 await asyncio.sleep(300)
 
@@ -298,20 +208,15 @@ class NewsCollectorPlugin(Star):
             candidates.append(t)
         return (min(candidates) - now).total_seconds()
 
-    # ======================== 按分类搜索 ========================
+    # ======================== 米游社 API 拉取 ========================
 
-    async def _search_all_categories(self, categories: List[str]) -> Dict[str, List[Dict]]:
-        """搜索所有需要的分类，返回 {分类名: [items]}"""
+    async def _fetch_all(self, categories: List[str]) -> Dict[str, List[Dict]]:
+        """并发拉取所有需要的游戏论坛帖子"""
         results = {}
         tasks = {}
         for cat in categories:
-            if cat in CATEGORIES:
-                cfg = CATEGORIES[cat]
-                if cfg["source"] == "web" and self.search_api_key:
-                    tasks[cat] = self._search_category_web(cat, cfg["queries"])
-                elif cfg["source"] == "github":
-                    tasks[cat] = self._fetch_github_trending()
-                # 不认识的 source 跳过
+            if cat in GAMES:
+                tasks[cat] = self._fetch_game_posts(cat)
         for cat, coro in tasks.items():
             try:
                 items = await coro
@@ -320,106 +225,106 @@ class NewsCollectorPlugin(Star):
                     if fresh:
                         results[cat] = fresh
             except Exception as e:
-                logger.warning(f"[搜索] {cat} 失败: {e}")
+                logger.warning(f"[米游社] {cat} 拉取失败: {e}")
         return results
 
-    def _today_query(self, query: str) -> str:
-        """给搜索词加日期前缀，确保搜到当天/近期的内容"""
-        now = datetime.datetime.now()
-        date_prefix = now.strftime("%Y年%m月%d日")
-        return f"{date_prefix} {query}"
-
-    async def _search_category_web(self, category: str, queries: List[str]) -> List[Dict]:
-        """对某个分类执行联网搜索（多查询词直到凑够数量）"""
-        all_results, seen_urls = [], set()
-        for query in queries:
-            date_query = self._today_query(query)
-            items = await self._web_search(date_query, self.search_count)
-            for item in items:
-                url = item.get("url", "")
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_results.append(item)
-            if len(all_results) >= self.search_count:
-                break
-        return all_results[:self.search_count]
-
-    async def _web_search(self, query: str, count: int = 5) -> List[Dict]:
-        if not self.search_api_key or self.search_provider not in SEARCH_PROVIDERS:
+    async def _fetch_game_posts(self, game: str) -> List[Dict]:
+        """拉取某个游戏的米游社帖子"""
+        cfg = GAMES.get(game)
+        if not cfg:
             return []
-        prov = SEARCH_PROVIDERS[self.search_provider]
-        headers = prov["headers"](self.search_api_key)
+        forum_id = cfg["forum_id"]
+        url = f"{MIYOUSHE_API}?forum_id={forum_id}&page_size={POSTS_PER_GAME}&sort_type=1"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.miyoushe.com/",
+        }
         try:
             async with aiohttp.ClientSession(
+                headers=headers,
                 connector=aiohttp.TCPConnector(verify_ssl=False),
             ) as session:
-                if prov["method"] == "POST":
-                    async with session.post(prov["url"], json=prov["payload"](query, count),
-                                            headers=headers, timeout=self.timeout) as r:
-                        if r.status != 200:
-                            return []
-                        return prov["parser"](await r.json())
-                else:
-                    async with session.get(prov["url"], params=prov["payload"](query, count),
-                                           headers=headers, timeout=self.timeout) as r:
-                        if r.status != 200:
-                            return []
-                        return prov["parser"](await r.json())
-        except Exception as e:
-            logger.warning(f"[搜索] \"{query[:30]}...\" 失败: {e}")
-            return []
-
-    async def _fetch_github_trending(self) -> List[Dict]:
-        days_ago = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
-        url = f"{GITHUB_SEARCH_API}?q=created:%3E{days_ago}&sort=stars&order=desc&per_page=8"
-        try:
-            async with aiohttp.ClientSession(
-                headers={"Accept": "application/vnd.github.v3+json"},
-                connector=aiohttp.TCPConnector(verify_ssl=False),
-            ) as s:
-                async with s.get(url, timeout=self.timeout) as r:
-                    if r.status != 200:
+                async with session.get(url, timeout=15) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"[米游社] {game} HTTP {resp.status}")
                         return []
-                    data = await r.json()
-                    return [
-                        {
-                            "title": repo.get("full_name", ""),
-                            "snippet": (repo.get("description") or "") + f" ⭐{repo.get('stargazers_count', 0)}",
-                            "url": repo.get("html_url", ""),
-                        }
-                        for repo in data.get("items", [])
-                    ]
+                    data = await resp.json()
+                    if data.get("retcode") != 0:
+                        logger.warning(f"[米游社] {game} API 异常: {data.get('message')}")
+                        return []
+
+                    items = data.get("data", {}).get("list", [])
+                    results = []
+                    for item in items:
+                        post = item.get("post", {})
+                        subject = post.get("subject", "").strip()
+                        content = post.get("content", "").strip()
+                        created = post.get("created_at", 0)
+                        images = post.get("images", [])
+                        post_id = post.get("post_id", "")
+                        uid = post.get("uid", "")
+
+                        # 跳过空标题
+                        if not subject:
+                            continue
+
+                        # 取纯文本内容（去除HTML标签）
+                        import re as _re
+                        clean_content = _re.sub(r"<[^>]+>", "", content)
+
+                        # 取缩略图
+                        cover = ""
+                        if images:
+                            cover = images[0]
+                            if cover and not cover.startswith("http"):
+                                cover = f"{IMG_CDN}/{cover.lstrip('/')}"
+
+                        # 构建文章链接
+                        post_url = f"https://www.miyoushe.com/ys/article/{post_id}" if post_id else ""
+
+                        dt = datetime.datetime.fromtimestamp(created)
+                        time_str = dt.strftime("%m/%d %H:%M")
+
+                        results.append({
+                            "title": subject,
+                            "snippet": clean_content[:200],
+                            "url": post_url,
+                            "time": time_str,
+                            "image": cover,
+                            "source": f"米游社-{game}",
+                        })
+                    return results
+        except asyncio.TimeoutError:
+            logger.warning(f"[米游社] {game} 超时")
+            return []
         except Exception as e:
-            logger.warning(f"[GitHub] 请求失败: {e}")
+            logger.warning(f"[米游社] {game} 请求失败: {e}")
             return []
 
-    # ======================== 按目标生成简报 ========================
+    # ======================== 简报生成 ========================
 
-    async def _build_report_for_target(
-        self, categories: List[str], cat_results: Dict[str, List[Dict]]
+    async def _build_report(
+        self, categories: List[str], cat_posts: Dict[str, List[Dict]]
     ) -> str:
-        """为某个目标生成简报（只含指定分类的新闻）"""
         now = datetime.datetime.now()
         weekday_cn = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][now.weekday()]
         date_str = now.strftime("%Y-%m-%d")
 
-        # 只取该目标需要的分类
-        target_data = {cat: cat_results[cat] for cat in categories if cat in cat_results}
-
+        target_data = {cat: cat_posts[cat] for cat in categories if cat in cat_posts}
         if not target_data:
             return ""
 
         if self.enable_llm:
             try:
-                report = await self._llm_organize(date_str, weekday_cn, target_data)
-                report += f"\n\n> 简报由 LLM + 联网搜索生成，内容截至 {now.strftime('%Y-%m-%d %H:%M')}"
+                report = await self._organize_with_llm(date_str, weekday_cn, target_data)
+                report += f"\n\n> 内容来自米游社，截至 {now.strftime('%Y-%m-%d %H:%M')}"
                 return report
             except Exception as e:
                 logger.error(f"[LLM] 整理失败: {e}")
 
-        return self._fallback_report(date_str, weekday_cn, target_data)
+        return self._simple_report(date_str, weekday_cn, target_data)
 
-    async def _llm_organize(
+    async def _organize_with_llm(
         self, date_str: str, weekday_cn: str, target_data: Dict[str, List[Dict]]
     ) -> str:
         provider = self.context.provider_manager.get_using_provider(ProviderType.CHAT_COMPLETION)
@@ -429,59 +334,49 @@ class NewsCollectorPlugin(Star):
         now = datetime.datetime.now()
 
         # 构建素材
-        parts = [f"今天是 {date_str}（{weekday_cn}）。请根据以下数据写一份每日新闻简报。"]
-        for category, items in target_data.items():
-            emoji = CATEGORIES.get(category, {}).get("emoji", "📌")
-            parts.append(f"\n\n[{emoji} {category}]")
-            for item in items:
-                snippet = item.get('snippet', '')[:300]  # 截断过长数据
-                parts.append(f"- {item.get('title', '')}: {snippet}")
-                if item.get("url"):
-                    parts.append(f"  URL: {item['url']}")
+        parts = [f"今天是 {date_str}（{weekday_cn}）。请根据以下来自米游社的帖子，整理一份游戏资讯简报。"]
+        for game, posts in target_data.items():
+            emoji = GAMES.get(game, {}).get("emoji", "🎮")
+            parts.append(f"\n\n[{emoji} {game}]")
+            for p in posts:
+                parts.append(f"- {p['title']}")
+                if p.get("snippet"):
+                    parts.append(f"  摘要: {p['snippet'][:200]}")
+                if p.get("time"):
+                    parts.append(f"  时间: {p['time']}")
+                if p.get("url"):
+                    parts.append(f"  URL: {p['url']}")
 
-        # 动态构建 system prompt（根据实际分类）
         cat_lines = []
         for cat in target_data:
-            emoji = CATEGORIES.get(cat, {}).get("emoji", "📌")
+            emoji = GAMES.get(cat, {}).get("emoji", "🎮")
             cat_lines.append(f"   {emoji} {cat}")
         cats_str = "\n".join(cat_lines)
-        first_emoji = CATEGORIES.get(list(target_data.keys())[0], {}).get("emoji", "📌") if target_data else "📌"
+        first_emoji = GAMES.get(list(target_data.keys())[0], {}).get("emoji", "🎮") if target_data else "🎮"
 
         system_prompt = f"""今天是 {date_str}（{weekday_cn}）。
 
-你是一个专业新闻整理助手。根据上面提供的搜索数据，生成一份每日新闻简报。
+你是一个游戏资讯助手。根据米游社的帖子数据，生成一份游戏资讯简报。
 
-【核心要求 - 时效性】
-1. 今天是 {date_str}！优先采用搜索数据中日期最近的内容
-2. 如果搜索数据中明确标注了日期，只保留 {now.year} 年 {now.month} 月的内容
-3. 宁可少报，也不要使用过时的旧闻
-
-【核心要求 - 内容】
-1. 只使用上面提供的数据，不要编造信息
-2. 按以下分类组织（下面每个分类都要出现在简报里）：
+【要求】
+1. 只使用上面提供的帖子数据，不要编造
+2. 按游戏分类组织：
 {cats_str}
-3. 保留每条新闻的来源 URL
-4. 每条新闻的摘要要写得完整充实（至少 2-3 句话），方便快速了解
-5. 如果某个分类有多条新闻，全部展示，不要删减
-6. 整体内容要足够丰富，不要过于简略
+3. 每个帖子给出简要摘要（1-2句话），让读者快速了解内容
+4. 保留帖子链接
 
-【输出格式 - QQ 消息友好】
-不要用 Markdown，用 emoji + 符号排版。每个分类之间空一行。
-
-格式示例：
-{first_emoji} AI/人工智能
+【输出格式 - QQ 友好】
+{first_emoji} 原神
 
 🔹 标题
-完整摘要内容...（至少写 2-3 句话，不要只写一行）
-📎 来源：xxx
-🔗 https://xxx
+摘要...
+🔗 https://...
 
-🔹 第二条新闻标题
-完整摘要内容...
-📎 来源：xxx
-🔗 https://xxx
+{first_emoji} 崩坏：星穹铁道
 
-每条新闻都要有 🔗 链接。每个分类至少写 3 条新闻。如果数据充足尽量多写。"""
+🔹 标题
+摘要...
+🔗 https://..."""
 
         model = self.llm_model if self.llm_model else None
         resp = await provider.text_chat(
@@ -489,24 +384,23 @@ class NewsCollectorPlugin(Star):
             system_prompt=system_prompt,
             model=model,
         )
-        return f"每日新闻简报 — {date_str}（{weekday_cn}）\n\n" + resp.completion_text.strip()
+        return f"米游社资讯 — {date_str}（{weekday_cn}）\n\n" + resp.completion_text.strip()
 
-    def _fallback_report(
+    def _simple_report(
         self, date_str: str, weekday_cn: str, target_data: Dict[str, List[Dict]]
     ) -> str:
-        report = f"每日新闻简报 — {date_str}（{weekday_cn}）\n\n"
-        for category, items in target_data.items():
-            emoji = CATEGORIES.get(category, {}).get("emoji", "📌")
-            report += f"{emoji} {category}\n\n"
-            for item in items[:5]:
-                title = item.get('title', '')
-                snippet = (item.get('snippet', '') or '')[:200]  # 截断，避免转发失败
-                url = item.get('url', '')
-                report += f"🔹 {title}\n"
-                if snippet:
-                    report += f"{snippet}\n"
-                if url:
-                    report += f"🔗 {url}\n"
+        report = f"米游社资讯 — {date_str}（{weekday_cn}）\n\n"
+        for game, posts in target_data.items():
+            emoji = GAMES.get(game, {}).get("emoji", "🎮")
+            report += f"{emoji} {game}\n\n"
+            for p in posts[:5]:
+                report += f"🔹 {p['title']}\n"
+                if p.get("snippet"):
+                    report += f"{p['snippet'][:200]}\n"
+                if p.get("time"):
+                    report += f"⏰ {p['time']}\n"
+                if p.get("url"):
+                    report += f"🔗 {p['url']}\n"
                 report += "\n"
         return report
 
@@ -515,71 +409,65 @@ class NewsCollectorPlugin(Star):
     def _gen_status_text(self) -> str:
         sec = self._calc_sleep()
         h, m = int(sec / 3600), int((sec % 3600) / 60)
-        search_status = f"{self.search_provider}" if self.search_api_key else "未配置"
         lines = [
-            f"新闻收集插件运行中 (v2.0)",
+            "米游社新闻插件运行中 (v3.0)",
             f"推送时间: {self.push_time}",
             f"推送目标: {len(self.targets)} 个",
         ]
         for t in self.targets:
             short_id = t["id"][:40]
-            cats = ", ".join(f"{CATEGORIES.get(c,{}).get('emoji','')}{c}" for c in t["categories"])
-            lines.append(f"  → {short_id}: {cats}")
+            cats = ", ".join(f"{GAMES.get(c,{}).get('emoji','')}{c}" for c in t["categories"])
+            lines.append(f"  -> {short_id}: {cats}")
         lines += [
-            f"联网搜索: {search_status}",
             f"LLM整理: {'开' if self.enable_llm else '关'}",
             f"去重缓存: {len(self._seen_urls)} 条",
-            f"距离下次推送: {h}小时{m}分钟",
+            f"距下次推送: {h}小时{m}分钟",
         ]
         return "\n".join(lines)
 
-    # ======================== 用户命令 ========================
+    # ======================== 命令 ========================
 
-    @filter.command("新闻")
-    async def cmd_news(self, event: AstrMessageEvent):
+    @filter.command("米游社")
+    async def cmd_miyoushe(self, event: AstrMessageEvent):
         try:
-            yield event.plain_result("正在联网搜索新闻并整理，请稍候...")
-            # 读取配置的默认分类
-            default_cats = getattr(self.config, "categories", ["AI/人工智能", "科技圈/GitHub热门", "游戏开发"])
-            needed = list(set(cat for t in self.targets for cat in t["categories"]) | set(default_cats))
-            cat_results = await self._search_all_categories(needed)
-            report = await self._build_report_for_target(default_cats, cat_results)
-            yield event.plain_result(report or "新闻收集失败，请稍后重试。")
+            yield event.plain_result("正在拉取米游社最新帖子...")
+            needed = list(GAMES.keys())
+            cat_posts = await self._fetch_all(needed)
+            report = await self._build_report(needed, cat_posts)
+            yield event.plain_result(report or "拉取失败，请稍后重试。")
         except Exception as e:
-            yield event.plain_result(f"新闻收集失败: {e}")
+            yield event.plain_result(f"拉取失败: {e}")
             logger.error(traceback.format_exc())
 
-    @filter.command("新闻状态")
+    @filter.command("米游社状态")
     async def cmd_status(self, event: AstrMessageEvent):
         yield event.plain_result(self._gen_status_text())
 
-    # ======================== 管理员命令 ========================
-
-    @filter.command_group("新闻管理")
-    def news_admin(self):
+    @filter.command_group("米游社管理")
+    def admin_group(self):
         pass
 
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @news_admin.command("push")
+    @admin_group.command("push")
     async def admin_push(self, event: AstrMessageEvent):
         if not self.targets:
             yield event.plain_result("未配置推送目标")
             return
-        yield event.plain_result("正在收集新闻并推送...")
+        yield event.plain_result("正在拉取并推送...")
         try:
-            needed_cats = set()
+            needed = set()
             for t in self.targets:
-                needed_cats.update(t["categories"])
-            cat_results = await self._search_all_categories(list(needed_cats))
+                needed.update(t["categories"])
+            cat_posts = await self._fetch_all(list(needed))
             all_seen = []
             for t in self.targets:
-                report = await self._build_report_for_target(t["categories"], cat_results)
+                report = await self._build_report(t["categories"], cat_posts)
                 if not report:
                     continue
                 mc = MessageChain().message(report)
                 await self.context.send_message(t["id"], mc)
                 await asyncio.sleep(2)
-            for items in cat_results.values():
+            for items in cat_posts.values():
                 all_seen.extend(items)
             if all_seen:
                 self._mark_as_seen(all_seen)
@@ -588,11 +476,9 @@ class NewsCollectorPlugin(Star):
             yield event.plain_result(f"推送失败: {e}")
 
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @news_admin.command("status")
+    @admin_group.command("status")
     async def admin_status(self, event: AstrMessageEvent):
         yield event.plain_result(self._gen_status_text())
-
-    # ======================== 生命周期 ========================
 
     async def terminate(self):
         if self._task:
@@ -601,4 +487,4 @@ class NewsCollectorPlugin(Star):
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("[新闻收集] 插件已卸载")
+        logger.info("[米游社] 插件已卸载")
