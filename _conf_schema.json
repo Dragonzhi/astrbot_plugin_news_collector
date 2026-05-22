@@ -1,56 +1,62 @@
 {
   "groups": {
-    "description": "推送目标",
-    "hint": "推送目标列表。格式：bot名称:MessageType:ID。例如 napcat:FriendMessage:3248569738 发送到自己的QQ。可添加多个。",
+    "description": "推送目标（支持每目标指定分类）",
+    "hint": "每个目标一行。格式：平台:类型:ID[:分类1,分类2,...]\n\n示例：\nnapcat:FriendMessage:3248569738:AI/人工智能,游戏开发\nnapcat:GroupMessage:984686890:二次元/游戏,时事热点\n\n不指定分类的话走默认分类。",
     "type": "list",
     "default": []
   },
+  "categories": {
+    "description": "默认分类列表",
+    "hint": "当目标没有指定分类时，使用此列表。可选分类：AI/人工智能、科技圈/GitHub热门、游戏开发、二次元/游戏、时事热点、科技数码",
+    "type": "list",
+    "default": ["AI/人工智能", "科技圈/GitHub热门", "游戏开发"]
+  },
   "push_time": {
     "description": "推送时间",
-    "hint": "每天推送的时间，格式 HH:MM。多个时间用英文或中文逗号分隔，如 08:00,12:00",
+    "hint": "格式 HH:MM，多个时间用逗号分隔，如 08:00,12:00",
     "type": "string",
     "default": "08:00"
   },
   "search_provider": {
     "description": "联网搜索引擎",
-    "hint": "选择搜索引擎。bocha（推荐，国内可用）、tavily、brave。留空则不使用联网搜索。",
+    "hint": "bocha（推荐国内用）、tavily、brave。留空则不使用联网搜索。",
     "type": "string",
     "default": "",
     "options": ["", "bocha", "tavily", "brave"]
   },
   "search_api_key": {
     "description": "搜索 API Key",
-    "hint": "搜索引擎的 API Key。Bocha 在 https://bochaai.com 注册获取，Tavily 在 https://tavily.com，Brave 在 https://brave.com/search/api/。如果你在 AstrBot 里已经配置过，直接拿来用就行。",
+    "hint": "搜索引擎的 API Key。Bocha https://bochaai.com，Tavily https://tavily.com，Brave https://brave.com/search/api/",
     "type": "string",
     "default": ""
   },
   "search_count": {
     "description": "每类搜索条数",
-    "hint": "每个新闻分类搜索返回的结果数量，默认 5 条。",
+    "hint": "每个分类搜索返回的结果数量",
     "type": "int",
     "default": 5
   },
   "enable_llm_organize": {
     "description": "LLM 智能整理",
-    "hint": "启用后，使用 LLM 对搜索到的新闻进行智能分类和摘要整理，生成结构化简报。关闭则直接拼接原始数据。",
+    "hint": "启用后使用 LLM 整理简报，关闭则直接拼接原始数据",
     "type": "bool",
     "default": true
   },
   "llm_model": {
     "description": "LLM 模型（可选）",
-    "hint": "用于新闻整理的模型 ID，留空则使用 AstrBot 当前默认模型。",
+    "hint": "用于整理的模型 ID，留空则使用 AstrBot 默认模型",
     "type": "string",
     "default": ""
   },
   "dedup_ttl_days": {
     "description": "去重保留天数",
-    "hint": "已推送的新闻 URL 会在缓存中保留此天数，期间内不会再次推送相同新闻。默认 7 天。设为 0 则关闭去重。",
+    "hint": "已推送新闻的去重保留天数，设为 0 关闭去重",
     "type": "int",
     "default": 7
   },
   "timeout": {
     "description": "请求超时（秒）",
-    "hint": "请求搜索 API 和 GitHub API 的超时时间",
+    "hint": "请求搜索 API 的超时时间",
     "type": "int",
     "default": 30
   }

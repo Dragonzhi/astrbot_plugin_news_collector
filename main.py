@@ -1,8 +1,8 @@
 """
 AstrBot 每日新闻收集 + LLM 智能整理插件
 
-每天定时收集新闻（AI/科技/GitHub/游戏开发），
-使用 LLM + 联网搜索 整理成结构化简报，推送到指定目标。
+支持多分类新闻搜索、按目标个性化推送。
+每个推送目标可以指定不同的新闻分类，互不干扰。
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import datetime
 import json
 import os
 import traceback
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Tuple
 
 import aiohttp
 
@@ -21,9 +21,8 @@ from astrbot.api.provider import ProviderType
 from astrbot.core.message.message_event_result import MessageChain
 
 
-# ========== 公开 API ==========
+# ========== GitHub API ==========
 GITHUB_SEARCH_API = "https://api.github.com/search/repositories"
-
 
 # ========== 搜索 API 配置 ==========
 SEARCH_PROVIDERS = {
@@ -35,96 +34,115 @@ SEARCH_PROVIDERS = {
             "Content-Type": "application/json",
             "Accept-Encoding": "gzip, deflate",
         },
-        "payload": lambda query, count: {
-            "query": query,
-            "count": count,
-            "summary": True,
-        },
-        "parser": lambda data: [
-            {
-                "title": item.get("name", ""),
-                "snippet": item.get("snippet", ""),
-                "url": item.get("url", ""),
-            }
-            for item in (data.get("data", {}).get("webPages", {}).get("value", []))
+        "payload": lambda q, c: {"query": q, "count": c, "summary": True},
+        "parser": lambda d: [
+            {"title": i.get("name", ""), "snippet": i.get("snippet", ""), "url": i.get("url", "")}
+            for i in (d.get("data", {}).get("webPages", {}).get("value", []))
         ],
     },
     "tavily": {
         "url": "https://api.tavily.com/search",
         "method": "POST",
-        "headers": lambda key: {
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-        },
-        "payload": lambda query, count: {
-            "query": query,
-            "max_results": count,
-            "search_depth": "basic",
-        },
-        "parser": lambda data: [
-            {
-                "title": item.get("title", ""),
-                "snippet": item.get("content", ""),
-                "url": item.get("url", ""),
-            }
-            for item in data.get("results", [])
+        "headers": lambda key: {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        "payload": lambda q, c: {"query": q, "max_results": c, "search_depth": "basic"},
+        "parser": lambda d: [
+            {"title": i.get("title", ""), "snippet": i.get("content", ""), "url": i.get("url", "")}
+            for i in d.get("results", [])
         ],
     },
     "brave": {
         "url": "https://api.search.brave.com/res/v1/web/search",
         "method": "GET",
-        "headers": lambda key: {
-            "Accept": "application/json",
-            "X-Subscription-Token": key,
-        },
-        "payload": lambda query, count: {
-            "q": query,
-            "count": count,
-        },
-        "parser": lambda data: [
-            {
-                "title": item.get("title", ""),
-                "snippet": item.get("description", ""),
-                "url": item.get("url", ""),
-            }
-            for item in (data.get("web", {}).get("results", []))
+        "headers": lambda key: {"Accept": "application/json", "X-Subscription-Token": key},
+        "payload": lambda q, c: {"q": q, "count": c},
+        "parser": lambda d: [
+            {"title": i.get("title", ""), "snippet": i.get("description", ""), "url": i.get("url", "")}
+            for i in (d.get("web", {}).get("results", []))
         ],
     },
 }
 
-
-# ========== 新闻收集搜索词 ==========
-SEARCH_QUERIES = {
-    "AI/人工智能": [
-        "2026年 AI 人工智能 大模型 最新进展",
-        "2026 AI artificial intelligence news latest",
-    ],
-    "科技圈/GitHub热门": [
-        "2026年 科技 开发者 工具 开源 最新动态",
-        "2026 technology developer news trending",
-    ],
-    "游戏开发": [
-        "2026年 游戏开发 引擎 Unreal Godot Unity 更新",
-        "2026 game development engine update news",
-    ],
+# ========== 新闻分类注册表 ==========
+# 每个分类可配置多个搜索词（依次搜索直到凑够数量），支持中英文
+# source: "web" 联网搜索 / "github" 用 GitHub API
+CATEGORIES = {
+    "AI/人工智能": {
+        "emoji": "🤖",
+        "source": "web",
+        "queries": [
+            "2026年 AI 人工智能 大模型 最新进展",
+            "2026 AI artificial intelligence news latest",
+        ],
+    },
+    "科技圈/GitHub热门": {
+        "emoji": "💻",
+        "source": "github",
+        "queries": [],
+    },
+    "游戏开发": {
+        "emoji": "🎮",
+        "source": "web",
+        "queries": [
+            "2026年 游戏开发 引擎 Unreal Godot Unity 更新",
+            "2026 game development engine update news",
+        ],
+    },
+    "二次元/游戏": {
+        "emoji": "🌟",
+        "source": "web",
+        "queries": [
+            "2026年 二次元 游戏 ACG 动漫 最新",
+            "2026 anime games gacha release news",
+        ],
+    },
+    "时事热点": {
+        "emoji": "📰",
+        "source": "web",
+        "queries": [
+            "2026年 今日热点 新闻 时事",
+            "2026 hot news today world events",
+        ],
+    },
+    "科技数码": {
+        "emoji": "📱",
+        "source": "web",
+        "queries": [
+            "2026年 科技 数码 手机 电脑 硬件 最新",
+            "2026 tech gadgets smartphone hardware news",
+        ],
+    },
 }
 
 
 @register(
     "astrbot_plugin_news_collector",
     "Hanako",
-    "每日新闻收集 + LLM + 联网搜索。联网搜索最新新闻（AI/科技/游戏开发），LLM 整理成简报推送。",
-    "1.1.0",
+    "多分类新闻收集 + LLM 整理 + 按目标个性化推送。支持 AI/科技/游戏/二次元/时事等分类，每个目标可指定不同分类。",
+    "2.0.0",
 )
 class NewsCollectorPlugin(Star):
-    """每日新闻收集 + LLM 整理插件"""
-
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
 
-        self.groups = getattr(self.config, "groups", [])
+        # 推送时间
         self.push_time = getattr(self.config, "push_time", "08:00")
+
+        # 解析目标列表（支持每目标指定分类）
+        # 格式: platform:type:id[:分类1,分类2]
+        raw_groups: list = getattr(self.config, "groups", [])
+        self.targets: List[Dict] = []  # [{id, categories}]
+        default_cats = getattr(self.config, "categories", ["AI/人工智能", "科技圈/GitHub热门", "游戏开发"])
+        for raw in raw_groups:
+            parts = raw.rsplit(":", 1)  # 从右边切一次，分出 目标 和 分类
+            if len(parts) == 2 and parts[1].count("/") + parts[1].count(",") > 0:
+                # 有分类指定
+                target_id = parts[0]
+                cats = [c.strip() for c in parts[1].split(",") if c.strip() in CATEGORIES]
+                self.targets.append({"id": target_id, "categories": cats or default_cats})
+            else:
+                # 无分类指定，走默认
+                self.targets.append({"id": raw, "categories": default_cats})
 
         # 联网搜索配置
         self.search_provider = getattr(self.config, "search_provider", "")
@@ -136,25 +154,27 @@ class NewsCollectorPlugin(Star):
         self.llm_model = getattr(self.config, "llm_model", "")
         self.timeout = getattr(self.config, "timeout", 30)
 
-        logger.info(
-            f"[新闻收集] 插件已加载: 推送时间={self.push_time}, "
-            f"联网搜索={'开(' + self.search_provider + ')' if self.search_api_key else '关'}, "
-            f"LLM整理={'开' if self.enable_llm else '关'}"
-        )
-        # 已见新闻缓存（去重用）
-        self._seen_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "_seen_news.json"
-        )
-        self._seen_urls: Dict[str, str] = {}  # {url: first_seen_date}
+        # 去重
+        self._seen_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_seen_news.json")
+        self._seen_urls: Dict[str, str] = {}
         self._dedup_ttl = getattr(self.config, "dedup_ttl_days", 7)
         self._load_seen()
+
+        # 日志
+        cats_summary = ", ".join(str(t["categories"]) for t in self.targets[:3])
+        logger.info(
+            f"[新闻收集] 插件 v2 已加载: 推送时间={self.push_time}, "
+            f"目标={len(self.targets)}个, "
+            f"联网={'开' if self.search_api_key else '关'}, "
+            f"LLM={'开' if self.enable_llm else '关'}"
+        )
+        logger.info(f"[新闻收集] 目标详情: {[(t['id'][:30], t['categories']) for t in self.targets]}")
 
         self._task = asyncio.create_task(self._daily_task())
 
     # ======================== 去重 ========================
 
     def _load_seen(self):
-        """从文件加载已见新闻 URL"""
         try:
             if os.path.exists(self._seen_file):
                 with open(self._seen_file, "r", encoding="utf-8") as f:
@@ -162,45 +182,36 @@ class NewsCollectorPlugin(Star):
                 self._seen_urls = data.get("urls", {})
                 today = datetime.date.today()
                 cutoff = today - datetime.timedelta(days=self._dedup_ttl)
-                expired = [
-                    url for url, date_str in self._seen_urls.items()
-                    if datetime.date.fromisoformat(date_str) < cutoff
-                ]
-                for url in expired:
-                    del self._seen_urls[url]
+                expired = [u for u, d in self._seen_urls.items()
+                           if datetime.date.fromisoformat(d) < cutoff]
+                for u in expired:
+                    del self._seen_urls[u]
                 if expired:
                     logger.info(f"[去重] 清理了 {len(expired)} 条过期记录")
         except Exception as e:
-            logger.warning(f"[去重] 加载已见文件失败: {e}")
+            logger.warning(f"[去重] 加载失败: {e}")
             self._seen_urls = {}
 
     def _save_seen(self):
-        """保存已见新闻 URL 到文件"""
         try:
             with open(self._seen_file, "w", encoding="utf-8") as f:
-                json.dump({"urls": self._seen_urls, "version": 1}, f, ensure_ascii=False)
+                json.dump({"urls": self._seen_urls, "version": 2}, f, ensure_ascii=False)
         except Exception as e:
-            logger.warning(f"[去重] 保存已见文件失败: {e}")
+            logger.warning(f"[去重] 保存失败: {e}")
 
     def _filter_fresh(self, items: List[Dict]) -> List[Dict]:
-        """过滤掉已见过的新闻，只保留新鲜的"""
-        fresh = []
-        skipped = 0
+        fresh, skipped = [], 0
         for item in items:
             url = item.get("url", "")
-            if not url or len(url) < 20:
-                fresh.append(item)
-                continue
-            if url not in self._seen_urls:
+            if not url or len(url) < 20 or url not in self._seen_urls:
                 fresh.append(item)
             else:
                 skipped += 1
         if skipped:
-            logger.info(f"[去重] 过滤掉了 {skipped} 条已见过的新闻")
+            logger.info(f"[去重] 过滤了 {skipped} 条")
         return fresh
 
     def _mark_as_seen(self, items: List[Dict]):
-        """将新闻 URL 标记为已见"""
         today = datetime.date.today().isoformat()
         added = 0
         for item in items:
@@ -210,22 +221,7 @@ class NewsCollectorPlugin(Star):
                 added += 1
         if added:
             self._save_seen()
-            logger.info(f"[去重] 新增 {added} 条已见记录")
-
-    # ======================== 状态 ========================
-
-    def _gen_status_text(self) -> str:
-        sec = self._calc_sleep()
-        h, m = int(sec / 3600), int((sec % 3600) / 60)
-        search_status = f"{self.search_provider}" if self.search_api_key else "未配置"
-        return (
-            f"新闻收集插件运行中\n"
-            f"推送时间: {self.push_time}\n"
-            f"推送目标: {len(self.groups)} 个\n"
-            f"联网搜索: {search_status}\n"
-            f"LLM整理: {'开' if self.enable_llm else '关'}\n"
-            f"距离下次推送: {h}小时{m}分钟"
-        )
+            logger.info(f"[去重] 新增 {added} 条")
 
     # ======================== 定时任务 ========================
 
@@ -233,22 +229,43 @@ class NewsCollectorPlugin(Star):
         while True:
             try:
                 sec = self._calc_sleep()
-                logger.info(f"[新闻收集] 距离下次推送还有 {sec / 3600:.1f} 小时")
+                logger.info(f"[新闻收集] 距离下次推送还有 {sec/3600:.1f} 小时")
                 await asyncio.sleep(sec)
-                if not self.groups:
-                    logger.warning("[新闻收集] 未配置推送目标，跳过本次推送")
+
+                if not self.targets:
+                    logger.warning("[新闻收集] 未配置推送目标")
                     continue
-                report = await self._build_report(mark_seen=True)
-                if not report:
-                    continue
-                for target in self.groups:
+
+                # 收集所有目标需要的分类（去重）
+                needed_cats = set()
+                for t in self.targets:
+                    needed_cats.update(t["categories"])
+
+                # 按分类搜索（一次搜索，多目标复用）
+                cat_results = await self._search_all_categories(list(needed_cats))
+
+                # 按目标生成简报并推送
+                all_seen = []
+                for t in self.targets:
+                    report = await self._build_report_for_target(
+                        t["categories"], cat_results
+                    )
+                    if not report:
+                        continue
                     try:
                         mc = MessageChain().message(report)
-                        await self.context.send_message(target, mc)
-                        logger.info(f"[新闻收集] 已推送到 {target}")
+                        await self.context.send_message(t["id"], mc)
+                        logger.info(f"[新闻收集] 已推送到 {t['id'][:40]}")
                         await asyncio.sleep(2)
                     except Exception as e:
-                        logger.error(f"[新闻收集] 推送失败 {target}: {e}")
+                        logger.error(f"[新闻收集] 推送失败 {t['id'][:40]}: {e}")
+
+                # 标记所有用到的新闻为已见
+                for items in cat_results.values():
+                    all_seen.extend(items)
+                if all_seen:
+                    self._mark_as_seen(all_seen)
+
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 break
@@ -279,271 +296,213 @@ class NewsCollectorPlugin(Star):
             candidates.append(t)
         return (min(candidates) - now).total_seconds()
 
-    # ======================== 联网搜索 ========================
+    # ======================== 按分类搜索 ========================
+
+    async def _search_all_categories(self, categories: List[str]) -> Dict[str, List[Dict]]:
+        """搜索所有需要的分类，返回 {分类名: [items]}"""
+        results = {}
+        tasks = {}
+        for cat in categories:
+            if cat in CATEGORIES:
+                cfg = CATEGORIES[cat]
+                if cfg["source"] == "web" and self.search_api_key:
+                    tasks[cat] = self._search_category_web(cat, cfg["queries"])
+                elif cfg["source"] == "github":
+                    tasks[cat] = self._fetch_github_trending()
+                # 不认识的 source 跳过
+        for cat, coro in tasks.items():
+            try:
+                items = await coro
+                if items:
+                    fresh = self._filter_fresh(items)
+                    if fresh:
+                        results[cat] = fresh
+            except Exception as e:
+                logger.warning(f"[搜索] {cat} 失败: {e}")
+        return results
+
+    async def _search_category_web(self, category: str, queries: List[str]) -> List[Dict]:
+        """对某个分类执行联网搜索（多查询词直到凑够数量）"""
+        all_results, seen_urls = [], set()
+        for query in queries:
+            items = await self._web_search(query, self.search_count)
+            for item in items:
+                url = item.get("url", "")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    all_results.append(item)
+            if len(all_results) >= self.search_count:
+                break
+        return all_results[:self.search_count]
 
     async def _web_search(self, query: str, count: int = 5) -> List[Dict]:
-        """通过配置的搜索引擎搜索网络"""
         if not self.search_api_key or self.search_provider not in SEARCH_PROVIDERS:
             return []
-
-        provider = SEARCH_PROVIDERS[self.search_provider]
-        headers = provider["headers"](self.search_api_key)
-        payload_or_params = provider["payload"](query, count)
-        method = provider["method"]
-        url = provider["url"]
-
+        prov = SEARCH_PROVIDERS[self.search_provider]
+        headers = prov["headers"](self.search_api_key)
         try:
             async with aiohttp.ClientSession(
                 connector=aiohttp.TCPConnector(verify_ssl=False),
             ) as session:
-                if method == "POST":
-                    async with session.post(
-                        url, json=payload_or_params, headers=headers,
-                        timeout=self.timeout
-                    ) as resp:
-                        if resp.status != 200:
-                            logger.warning(f"[搜索] {self.search_provider} 返回 {resp.status}")
+                if prov["method"] == "POST":
+                    async with session.post(prov["url"], json=prov["payload"](query, count),
+                                            headers=headers, timeout=self.timeout) as r:
+                        if r.status != 200:
                             return []
-                        data = await resp.json()
-                else:  # GET
-                    async with session.get(
-                        url, params=payload_or_params, headers=headers,
-                        timeout=self.timeout
-                    ) as resp:
-                        if resp.status != 200:
-                            logger.warning(f"[搜索] {self.search_provider} 返回 {resp.status}")
+                        return prov["parser"](await r.json())
+                else:
+                    async with session.get(prov["url"], params=prov["payload"](query, count),
+                                           headers=headers, timeout=self.timeout) as r:
+                        if r.status != 200:
                             return []
-                        data = await resp.json()
-
-                results = provider["parser"](data)
-                logger.info(f"[搜索] \"{query[:30]}...\" 返回 {len(results)} 条结果")
-                return results
-
-        except asyncio.TimeoutError:
-            logger.warning(f"[搜索] {self.search_provider} 超时")
-            return []
+                        return prov["parser"](await r.json())
         except Exception as e:
-            logger.warning(f"[搜索] {self.search_provider} 失败: {e}")
+            logger.warning(f"[搜索] \"{query[:30]}...\" 失败: {e}")
             return []
 
-    async def _search_category(self, category: str, count: int = 5) -> List[Dict]:
-        """搜索某个分类的新闻"""
-        queries = SEARCH_QUERIES.get(category, [])
-        all_results = []
-        seen_urls = set()
+    async def _fetch_github_trending(self) -> List[Dict]:
+        days_ago = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+        url = f"{GITHUB_SEARCH_API}?q=created:%3E{days_ago}&sort=stars&order=desc&per_page=8"
+        try:
+            async with aiohttp.ClientSession(
+                headers={"Accept": "application/vnd.github.v3+json"},
+                connector=aiohttp.TCPConnector(verify_ssl=False),
+            ) as s:
+                async with s.get(url, timeout=self.timeout) as r:
+                    if r.status != 200:
+                        return []
+                    data = await r.json()
+                    return [
+                        {
+                            "title": repo.get("full_name", ""),
+                            "snippet": (repo.get("description") or "") + f" ⭐{repo.get('stargazers_count', 0)}",
+                            "url": repo.get("html_url", ""),
+                        }
+                        for repo in data.get("items", [])
+                    ]
+        except Exception as e:
+            logger.warning(f"[GitHub] 请求失败: {e}")
+            return []
 
-        for query in queries:
-            results = await self._web_search(query, max(count, 3))
-            for r in results:
-                url = r.get("url", "")
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_results.append(r)
-            if len(all_results) >= count:
-                break
+    # ======================== 按目标生成简报 ========================
 
-        return all_results[:count]
-
-    # ======================== 简报构建 ========================
-
-    async def _build_report(self) -> str:
+    async def _build_report_for_target(
+        self, categories: List[str], cat_results: Dict[str, List[Dict]]
+    ) -> str:
+        """为某个目标生成简报（只含指定分类的新闻）"""
         now = datetime.datetime.now()
         weekday_cn = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][now.weekday()]
         date_str = now.strftime("%Y-%m-%d")
 
-        # 1. GitHub Trending（实时）
-        github_items = await self._fetch_github_trending()
+        # 只取该目标需要的分类
+        target_data = {cat: cat_results[cat] for cat in categories if cat in cat_results}
 
-        # 2. 联网搜索各分类新闻（去重）
-        search_results = {}  # {category: [items]}
-        if self.search_api_key:
-            categories = ["AI/人工智能", "科技圈/GitHub热门", "游戏开发"]
-            tasks = {
-                cat: self._search_category(cat, self.search_count)
-                for cat in categories
-            }
-            for cat, coro in tasks.items():
-                try:
-                    items = await coro
-                    if items:
-                        fresh = self._filter_fresh(items)
-                        if fresh:
-                            search_results[cat] = fresh
-                except Exception as e:
-                    logger.warning(f"[新闻收集] 搜索 {cat} 失败: {e}")
+        if not target_data:
+            return ""
 
-        # 3. GitHub 数据也去重
-        github_items = self._filter_fresh(github_items)
-
-        # 4. 传给 LLM 生成简报
-        report = None
         if self.enable_llm:
             try:
-                report = await self._generate_report_via_llm(
-                    date_str, weekday_cn, github_items, search_results
-                )
+                report = await self._llm_organize(date_str, weekday_cn, target_data)
                 report += f"\n\n> 简报由 LLM + 联网搜索生成，内容截至 {now.strftime('%Y-%m-%d %H:%M')}"
+                return report
             except Exception as e:
-                logger.error(f"[新闻收集] LLM 生成简报失败: {e}")
+                logger.error(f"[LLM] 整理失败: {e}")
 
-        if not report:
-            report = self._fallback_report(date_str, weekday_cn, github_items, search_results)
+        return self._fallback_report(date_str, weekday_cn, target_data)
 
-        return report
-
-    async def _generate_report_via_llm(
-        self,
-        date_str: str,
-        weekday_cn: str,
-        github_items: List[Dict],
-        search_results: Dict[str, List[Dict]],
+    async def _llm_organize(
+        self, date_str: str, weekday_cn: str, target_data: Dict[str, List[Dict]]
     ) -> str:
-        provider = self.context.provider_manager.get_using_provider(
-            ProviderType.CHAT_COMPLETION
-        )
+        provider = self.context.provider_manager.get_using_provider(ProviderType.CHAT_COMPLETION)
         if not provider:
             raise Exception("没有可用的 LLM 提供商")
 
-        # 构建用户消息 - 把所有搜索数据和 GitHub 数据塞进去
-        user_parts = [
-            f"今天是 {date_str}（{weekday_cn}）。请根据以下数据写一份每日新闻简报。"
-        ]
-
-        # GitHub 数据
-        if github_items:
-            user_parts.append("\n\n[GitHub Trending 实时数据]")
-            for item in github_items:
-                user_parts.append(
-                    f"- {item.get('title', '')}: {item.get('summary', '')}"
-                )
-                if item.get("url"):
-                    user_parts.append(f"  URL: {item['url']}")
-
-        # 联网搜索结果
-        for category, items in search_results.items():
-            user_parts.append(f"\n\n[联网搜索 - {category}]")
+        # 构建素材
+        parts = [f"今天是 {date_str}（{weekday_cn}）。请根据以下数据写一份每日新闻简报。"]
+        for category, items in target_data.items():
+            emoji = CATEGORIES.get(category, {}).get("emoji", "📌")
+            parts.append(f"\n\n[{emoji} {category}]")
             for item in items:
-                user_parts.append(f"- {item.get('title', '')}: {item.get('snippet', '')}")
+                parts.append(f"- {item.get('title', '')}: {item.get('snippet', '')}")
                 if item.get("url"):
-                    user_parts.append(f"  URL: {item['url']}")
+                    parts.append(f"  URL: {item['url']}")
+
+        # 动态构建 system prompt（根据实际分类）
+        cat_lines = []
+        for cat in target_data:
+            emoji = CATEGORIES.get(cat, {}).get("emoji", "📌")
+            cat_lines.append(f"   {emoji} {cat}")
+        cats_str = "\n".join(cat_lines)
 
         system_prompt = f"""今天是 {date_str}（{weekday_cn}）。
 
-你是一个专业新闻整理助手。根据上面提供的「GitHub Trending 实时数据」和「联网搜索结果」，生成一份每日新闻简报。
+你是一个专业新闻整理助手。根据上面提供的搜索数据，生成一份每日新闻简报。
 
 【核心要求】
 1. 只使用上面提供的数据，不要编造信息
-2. 按以下分类组织（没数据的分类就跳过）：
-   - AI/人工智能
-   - 科技圈/GitHub热门
-   - 游戏开发
-3. 保留每条新闻的来源 URL，方便用户点击
+2. 按以下分类组织（下面每个分类都要出现在简报里）：
+{cats_str}
+3. 保留每条新闻的来源 URL
 
 【输出格式 - QQ 消息友好】
-不要用 Markdown，用 emoji + 符号排版：
+不要用 Markdown，用 emoji + 符号排版。
 
-📂 AI/人工智能
+示例：
+{emoji} AI/人工智能
 
 🔹 标题
 摘要内容...
 📎 来源：xxx
 🔗 https://xxx
 
-📂 科技圈/GitHub热门
-
-🔹 项目名
-项目描述...
-📎 来源：GitHub Trending
-🔗 https://github.com/xxx
-
-注意：每条新闻都要有 🔗 链接，用户需要点击查看详情。"""
+每条新闻都要有 🔗 链接。"""
 
         model = self.llm_model if self.llm_model else None
         resp = await provider.text_chat(
-            prompt="\n".join(user_parts),
+            prompt="\n".join(parts),
             system_prompt=system_prompt,
             model=model,
         )
-        return (
-            f"每日新闻简报 — {date_str}（{weekday_cn}）\n\n"
-            + resp.completion_text.strip()
-        )
+        return f"每日新闻简报 — {date_str}（{weekday_cn}）\n\n" + resp.completion_text.strip()
 
     def _fallback_report(
-        self,
-        date_str: str,
-        weekday_cn: str,
-        github_items: List[Dict],
-        search_results: Dict[str, List[Dict]],
+        self, date_str: str, weekday_cn: str, target_data: Dict[str, List[Dict]]
     ) -> str:
-        """LLM 不可用时的兜底输出"""
         report = f"每日新闻简报 — {date_str}（{weekday_cn}）\n\n"
-
-        # 联网搜索结果
-        for category, items in search_results.items():
-            report += f"📂 {category}\n\n"
-            for i, item in enumerate(items[:5], 1):
+        for category, items in target_data.items():
+            emoji = CATEGORIES.get(category, {}).get("emoji", "📌")
+            report += f"{emoji} {category}\n\n"
+            for item in items[:5]:
                 report += f"🔹 {item.get('title', '')}\n"
                 if item.get("snippet"):
                     report += f"{item['snippet']}\n"
                 if item.get("url"):
                     report += f"🔗 {item['url']}\n"
                 report += "\n"
-
-        # GitHub 数据
-        if github_items:
-            report += "📂 科技圈/GitHub热门\n\n"
-            for item in github_items[:5]:
-                report += f"🔹 {item.get('title', '')}\n"
-                if item.get("summary"):
-                    report += f"{item['summary']}\n"
-                if item.get("url"):
-                    report += f"🔗 {item['url']}\n"
-                report += "\n"
-
-        if not search_results and not github_items:
-            report += "暂无新闻数据，请检查网络连接。\n"
-
         return report
 
-    # ======================== GitHub Trending ========================
+    # ======================== 状态 ========================
 
-    async def _fetch_github_trending(self) -> List[Dict]:
-        days_ago = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime(
-            "%Y-%m-%d"
-        )
-        url = f"{GITHUB_SEARCH_API}?q=created:%3E{days_ago}&sort=stars&order=desc&per_page=8"
-        headers = {"Accept": "application/vnd.github.v3+json"}
-        try:
-            async with aiohttp.ClientSession(
-                headers=headers,
-                connector=aiohttp.TCPConnector(verify_ssl=False),
-            ) as session:
-                async with session.get(url, timeout=self.timeout) as resp:
-                    if resp.status != 200:
-                        return []
-                    data = await resp.json()
-                    results = []
-                    for repo in data.get("items", []):
-                        name = repo.get("full_name", "")
-                        desc = repo.get("description") or ""
-                        stars = repo.get("stargazers_count", 0)
-                        lang = repo.get("language") or ""
-                        url = repo.get("html_url", "")
-                        summary = desc
-                        if lang:
-                            summary += f" [{lang}]"
-                        summary += f" ⭐{stars}"
-                        results.append({
-                            "title": name,
-                            "summary": summary,
-                            "source": "GitHub Trending",
-                            "url": url,
-                        })
-                    return results
-        except Exception as e:
-            logger.warning(f"[新闻收集] GitHub API 请求失败: {e}")
-            return []
+    def _gen_status_text(self) -> str:
+        sec = self._calc_sleep()
+        h, m = int(sec / 3600), int((sec % 3600) / 60)
+        search_status = f"{self.search_provider}" if self.search_api_key else "未配置"
+        lines = [
+            f"新闻收集插件运行中 (v2.0)",
+            f"推送时间: {self.push_time}",
+            f"推送目标: {len(self.targets)} 个",
+        ]
+        for t in self.targets:
+            short_id = t["id"][:40]
+            cats = ", ".join(f"{CATEGORIES.get(c,{}).get('emoji','')}{c}" for c in t["categories"])
+            lines.append(f"  → {short_id}: {cats}")
+        lines += [
+            f"联网搜索: {search_status}",
+            f"LLM整理: {'开' if self.enable_llm else '关'}",
+            f"去重缓存: {len(self._seen_urls)} 条",
+            f"距离下次推送: {h}小时{m}分钟",
+        ]
+        return "\n".join(lines)
 
     # ======================== 用户命令 ========================
 
@@ -551,7 +510,11 @@ class NewsCollectorPlugin(Star):
     async def cmd_news(self, event: AstrMessageEvent):
         try:
             yield event.plain_result("正在联网搜索新闻并整理，请稍候...")
-            report = await self._build_report()
+            # 读取配置的默认分类
+            default_cats = getattr(self.config, "categories", ["AI/人工智能", "科技圈/GitHub热门", "游戏开发"])
+            needed = list(set(cat for t in self.targets for cat in t["categories"]) | set(default_cats))
+            cat_results = await self._search_all_categories(needed)
+            report = await self._build_report_for_target(default_cats, cat_results)
             yield event.plain_result(report or "新闻收集失败，请稍后重试。")
         except Exception as e:
             yield event.plain_result(f"新闻收集失败: {e}")
@@ -570,20 +533,28 @@ class NewsCollectorPlugin(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     @news_admin.command("push")
     async def admin_push(self, event: AstrMessageEvent):
-        if not self.groups:
-            yield event.plain_result("未配置推送目标，请在插件配置中设置 groups。")
+        if not self.targets:
+            yield event.plain_result("未配置推送目标")
             return
         yield event.plain_result("正在收集新闻并推送...")
         try:
-            report = await self._build_report()
-            if report:
-                for target in self.groups:
-                    mc = MessageChain().message(report)
-                    await self.context.send_message(target, mc)
-                    await asyncio.sleep(2)
-                yield event.plain_result(f"已推送到 {len(self.groups)} 个目标")
-            else:
-                yield event.plain_result("新闻简报为空，未推送")
+            needed_cats = set()
+            for t in self.targets:
+                needed_cats.update(t["categories"])
+            cat_results = await self._search_all_categories(list(needed_cats))
+            all_seen = []
+            for t in self.targets:
+                report = await self._build_report_for_target(t["categories"], cat_results)
+                if not report:
+                    continue
+                mc = MessageChain().message(report)
+                await self.context.send_message(t["id"], mc)
+                await asyncio.sleep(2)
+            for items in cat_results.values():
+                all_seen.extend(items)
+            if all_seen:
+                self._mark_as_seen(all_seen)
+            yield event.plain_result(f"已推送到 {len(self.targets)} 个目标")
         except Exception as e:
             yield event.plain_result(f"推送失败: {e}")
 
