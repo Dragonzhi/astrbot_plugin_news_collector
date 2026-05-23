@@ -56,6 +56,7 @@ IMG_CDN = "https://upload-bbs.miyoushe.com"
     "Hanako",
     "米游社新闻收集。从米游社 BBS 拉取米哈游官方新闻和公告，按目标个性化推送。",
     "3.0.2",
+    repo="https://github.com/Dragonzhi/astrbot_plugin_news_collector",
 )
 class MiyoushePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
