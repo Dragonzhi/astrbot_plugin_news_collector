@@ -293,12 +293,28 @@ class MiyoushePlugin(Star):
                         import re as _re
                         clean_content = _re.sub(r"<[^>]+>", "", content)
 
-                        # 取缩略图
+                        # 取缩略图/视频封面
                         cover = ""
                         if images:
                             cover = images[0]
-                            if cover and not cover.startswith("http"):
-                                cover = f"{IMG_CDN}/{cover.lstrip('/')}"
+
+                        # 通用 cover 字段（视频/图文都可能有）
+                        if not cover:
+                            cover = post.get("cover", "")
+
+                        # 视频帖子：尝试从 vod_list 取封面
+                        if not cover:
+                            vod_list = post.get("vod_list", [])
+                            if vod_list and isinstance(vod_list, list):
+                                for vod in vod_list:
+                                    if isinstance(vod, dict):
+                                        cover = vod.get("cover") or vod.get("screenshot") or ""
+                                        if cover:
+                                            break
+
+                        # 统一补全 CDN 前缀
+                        if cover and not cover.startswith("http"):
+                            cover = f"{IMG_CDN}/{cover.lstrip('/')}"
 
                         # 构建文章链接
                         post_url = f"https://www.miyoushe.com/ys/article/{post_id}" if post_id else ""
