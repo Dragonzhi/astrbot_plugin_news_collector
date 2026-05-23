@@ -406,13 +406,14 @@ class MiyoushePlugin(Star):
         text += f"\n\n> 内容来自米游社，截至 {now.strftime('%Y-%m-%d %H:%M')}"
 
         # 构建 MessageChain：文本 + 封面图（受配置限制）
-        mc = MessageChain().message(text)
+        from astrbot.core.message.components import Plain
+        mc = MessageChain([Plain(text)])
         img_count = 0
         for posts in target_data.values():
             for p in posts:
                 img_url = p.get("image")
                 if img_url:
-                    mc = mc.image(Image.fromURL(img_url))
+                    mc.chain.append(Image.fromURL(img_url))
                     img_count += 1
                     if self.enable_image_limit and img_count >= self.max_images:
                         return mc
@@ -436,13 +437,14 @@ class MiyoushePlugin(Star):
                 report += "\n"
 
         # 构建 MessageChain：文本 + 封面图（受配置限制）
-        mc = MessageChain().message(report)
+        from astrbot.core.message.components import Plain
+        mc = MessageChain([Plain(report)])
         img_count = 0
         for posts in target_data.values():
             for p in posts:
                 img_url = p.get("image")
                 if img_url:
-                    mc = mc.image(Image.fromURL(img_url))
+                    mc.chain.append(Image.fromURL(img_url))
                     img_count += 1
                     if self.enable_image_limit and img_count >= self.max_images:
                         return mc
