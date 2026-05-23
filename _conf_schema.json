@@ -34,5 +34,17 @@
     "hint": "已推送帖子的去重保留天数",
     "type": "int",
     "default": 7
+  },
+  "enable_image_limit": {
+    "description": "限制图片数量",
+    "hint": "启用后每条简报最多只嵌入一张图片，避免消息过长。关闭则发送所有帖子封面图",
+    "type": "bool",
+    "default": true
+  },
+  "max_images": {
+    "description": "最大图片数量",
+    "hint": "限制每条简报嵌入的图片数量（仅在限制图片数量开启时生效）",
+    "type": "int",
+    "default": 1
   }
 }

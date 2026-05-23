@@ -2,6 +2,8 @@
 
 米游社新闻收集插件。从米游社 BBS 拉取米哈游官方新闻和公告，按目标个性化推送。
 
+> **平台声明**：本插件主要针对 **OneBot 协议（QQ 平台）** 优化，消息格式采用 QQ 友好的 emoji 排版与混合消息（文本+图片）。其他平台可能表现不一致。
+
 ## 功能
 
 - **米游社资讯**：拉取原神、崩坏：星穹铁道、绝区零、崩坏3 等游戏的最新社区帖子
@@ -38,6 +40,8 @@ napcat:GroupMessage:群号:原神
 | `enable_llm_organize` | bool | `true` | 是否用 LLM 整理 |
 | `llm_model` | string | `""` | LLM 模型 ID |
 | `dedup_ttl_days` | int | `7` | 去重保留天数 |
+| `enable_image_limit` | bool | `true` | 是否限制图片数量 |
+| `max_images` | int | `1` | 每条简报最大图片数（0=无限制）|
 
 ### 可用游戏
 
