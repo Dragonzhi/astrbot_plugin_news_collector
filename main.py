@@ -19,7 +19,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 from astrbot.api.provider import ProviderType
 from astrbot.core.message.message_event_result import MessageChain
-from astrbot.core.message.components import Image
+from astrbot.core.message.components import Image, Plain
 
 
 # ========== 米游社 API ==========
@@ -184,11 +184,12 @@ class MiyoushePlugin(Star):
                 cat_posts = await self._fetch_all(list(needed_cats))
                 all_seen = []
                 for t in self.targets:
-                    mc = await self._build_report(t["categories"], cat_posts)
-                    if not mc or not mc.chain:
+                    chain = await self._build_report(t["categories"], cat_posts)
+                    if not chain:
                         logger.warning(f"[米游社] {t['id'][:40]} 简报为空，跳过推送 (分类: {t['categories']}, 拉取到: {list(cat_posts.keys())})")
                         continue
                     try:
+                        mc = MessageChain(chain)
                         await self.context.send_message(t["id"], mc)
                         logger.info(f"[米游社] 已推送 {t['id'][:40]}")
                         await asyncio.sleep(2)
@@ -325,14 +326,14 @@ class MiyoushePlugin(Star):
 
     async def _build_report(
         self, categories: List[str], cat_posts: Dict[str, List[Dict]]
-    ) -> MessageChain:
+    ) -> List:
         now = datetime.datetime.now()
         weekday_cn = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][now.weekday()]
         date_str = now.strftime("%Y-%m-%d")
 
         target_data = {cat: cat_posts[cat] for cat in categories if cat in cat_posts}
         if not target_data:
-            return MessageChain()
+            return []
 
         if self.enable_llm:
             try:
@@ -344,7 +345,7 @@ class MiyoushePlugin(Star):
 
     async def _organize_with_llm(
         self, date_str: str, weekday_cn: str, target_data: Dict[str, List[Dict]]
-    ) -> MessageChain:
+    ) -> List:
         provider = self.context.provider_manager.get_using_provider(ProviderType.CHAT_COMPLETION)
         if not provider:
             raise Exception("没有可用的 LLM 提供商")
@@ -405,23 +406,22 @@ class MiyoushePlugin(Star):
         text = f"米游社资讯 — {date_str}（{weekday_cn}）\n\n" + resp.completion_text.strip()
         text += f"\n\n> 内容来自米游社，截至 {now.strftime('%Y-%m-%d %H:%M')}"
 
-        # 构建 MessageChain：文本 + 封面图（受配置限制）
-        from astrbot.core.message.components import Plain
-        mc = MessageChain([Plain(text)])
+        # 构建消息链列表：文本 + 封面图（受配置限制）
+        chain = [Plain(text)]
         img_count = 0
         for posts in target_data.values():
             for p in posts:
                 img_url = p.get("image")
                 if img_url:
-                    mc.chain.append(Image.fromURL(img_url))
+                    chain.append(Image.fromURL(img_url))
                     img_count += 1
                     if self.enable_image_limit and img_count >= self.max_images:
-                        return mc
-        return mc
+                        return chain
+        return chain
 
     def _simple_report(
         self, date_str: str, weekday_cn: str, target_data: Dict[str, List[Dict]]
-    ) -> MessageChain:
+    ) -> List:
         report = f"米游社资讯 — {date_str}（{weekday_cn}）\n\n"
         for game, posts in target_data.items():
             emoji = GAMES.get(game, {}).get("emoji", "🎮")
@@ -436,19 +436,18 @@ class MiyoushePlugin(Star):
                     report += f"🔗 {p['url']}\n"
                 report += "\n"
 
-        # 构建 MessageChain：文本 + 封面图（受配置限制）
-        from astrbot.core.message.components import Plain
-        mc = MessageChain([Plain(report)])
+        # 构建消息链列表：文本 + 封面图（受配置限制）
+        chain = [Plain(report)]
         img_count = 0
         for posts in target_data.values():
             for p in posts:
                 img_url = p.get("image")
                 if img_url:
-                    mc.chain.append(Image.fromURL(img_url))
+                    chain.append(Image.fromURL(img_url))
                     img_count += 1
                     if self.enable_image_limit and img_count >= self.max_images:
-                        return mc
-        return mc
+                        return chain
+        return chain
 
     # ======================== 状态 ========================
 
@@ -494,9 +493,9 @@ class MiyoushePlugin(Star):
                     "请检查 AstrBot 日志中的 [米游社] 相关输出"
                 )
                 return
-            mc = await self._build_report(cats, cat_posts)
-            if mc and mc.chain:
-                yield event.chain_result(mc)
+            chain = await self._build_report(cats, cat_posts)
+            if chain:
+                yield event.chain_result(chain)
             else:
                 yield event.plain_result("简报为空，可能是 LLM 整理失败。")
         except Exception as e:
@@ -551,9 +550,10 @@ class MiyoushePlugin(Star):
             cat_posts = await self._fetch_all(list(needed))
             all_seen = []
             for t in self.targets:
-                mc = await self._build_report(t["categories"], cat_posts)
-                if not mc or not mc.chain:
+                chain = await self._build_report(t["categories"], cat_posts)
+                if not chain:
                     continue
+                mc = MessageChain(chain)
                 await self.context.send_message(t["id"], mc)
                 await asyncio.sleep(2)
             for items in cat_posts.values():
