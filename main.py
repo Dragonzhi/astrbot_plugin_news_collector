@@ -403,44 +403,63 @@ class MiyoushePlugin(Star):
             system_prompt=system_prompt,
             model=model,
         )
-        text = f"米游社资讯 — {date_str}（{weekday_cn}）\n\n" + resp.completion_text.strip()
-        text += f"\n\n> 内容来自米游社，截至 {now.strftime('%Y-%m-%d %H:%M')}"
+        header = f"米游社资讯 — {date_str}（{weekday_cn}）\n\n"
+        footer = f"\n\n> 内容来自米游社，截至 {now.strftime('%Y-%m-%d %H:%M')}"
+        llm_text = resp.completion_text.strip()
 
-        # 构建消息链列表：文本 + 封面图（受配置限制）
-        chain = [Plain(text)]
+        # 构建消息链：LLM文本拆分为段落，在对应帖子后插入图片
+        chain = [Plain(header)]
         img_count = 0
+        # 收集所有带图片的帖子，按顺序
+        all_posts = []
         for posts in target_data.values():
             for p in posts:
-                img_url = p.get("image")
+                all_posts.append(p)
+
+        # 尝试按标题匹配：在 LLM 输出中找到每个标题位置，在其后插入图片
+        remaining_text = llm_text
+        for p in all_posts:
+            title = p['title']
+            img_url = p.get("image")
+            # 查找标题在文本中的位置
+            idx = remaining_text.find(title)
+            if idx != -1:
+                # 标题前的文本
+                before = remaining_text[:idx + len(title)]
+                chain.append(Plain(before))
+                remaining_text = remaining_text[idx + len(title):]
+                # 插入图片（如果有限制则检查）
                 if img_url:
-                    chain.append(Image.fromURL(img_url))
-                    img_count += 1
-                    if self.enable_image_limit and img_count >= self.max_images:
-                        return chain
+                    if not self.enable_image_limit or img_count < self.max_images:
+                        chain.append(Image.fromURL(img_url))
+                        img_count += 1
+            else:
+                # 标题未找到，跳过
+                pass
+
+        # 追加剩余文本和页脚
+        chain.append(Plain(remaining_text + footer))
         return chain
 
     def _simple_report(
         self, date_str: str, weekday_cn: str, target_data: Dict[str, List[Dict]]
     ) -> List:
-        report = f"米游社资讯 — {date_str}（{weekday_cn}）\n\n"
+        chain = [Plain(f"米游社资讯 — {date_str}（{weekday_cn}）\n\n")]
+        img_count = 0
         for game, posts in target_data.items():
             emoji = GAMES.get(game, {}).get("emoji", "🎮")
-            report += f"{emoji} {game}\n\n"
+            chain.append(Plain(f"{emoji} {game}\n\n"))
             for p in posts[:5]:
-                report += f"🔹 {p['title']}\n"
+                text = f"🔹 {p['title']}\n"
                 if p.get("snippet"):
-                    report += f"{p['snippet'][:200]}\n"
+                    text += f"{p['snippet'][:200]}\n"
                 if p.get("time"):
-                    report += f"⏰ {p['time']}\n"
+                    text += f"⏰ {p['time']}\n"
                 if p.get("url"):
-                    report += f"🔗 {p['url']}\n"
-                report += "\n"
+                    text += f"🔗 {p['url']}\n"
+                text += "\n"
+                chain.append(Plain(text))
 
-        # 构建消息链列表：文本 + 封面图（受配置限制）
-        chain = [Plain(report)]
-        img_count = 0
-        for posts in target_data.values():
-            for p in posts:
                 img_url = p.get("image")
                 if img_url:
                     chain.append(Image.fromURL(img_url))
