@@ -90,9 +90,13 @@ class MiyoushePlugin(Star):
         self._load_seen()
 
         logger.info(
-            f"[米游社] 插件 v3 已加载: 推送={self.push_time}, "
+            f"[米游社] 插件 v3.0.1 已加载: 推送={self.push_time}, "
             f"目标={len(self.targets)}个, LLM={'开' if self.enable_llm else '关'}"
         )
+        for t in self.targets:
+            logger.info(f"[米游社] 目标: {t['id'][:50]} -> {t['categories']}")
+        sec = self._calc_sleep()
+        logger.info(f"[米游社] 距首次推送还有 {sec/3600:.1f} 小时 ({self.push_time})")
         self._task = asyncio.create_task(self._daily_task())
 
     # ======================== 去重 ========================
@@ -166,6 +170,7 @@ class MiyoushePlugin(Star):
                 for t in self.targets:
                     report = await self._build_report(t["categories"], cat_posts)
                     if not report:
+                        logger.warning(f"[米游社] {t['id'][:40]} 简报为空，跳过推送 (分类: {t['categories']}, 拉取到: {list(cat_posts.keys())})")
                         continue
                     try:
                         mc = MessageChain().message(report)
@@ -459,6 +464,30 @@ class MiyoushePlugin(Star):
     @filter.command("米游社状态")
     async def cmd_status(self, event: AstrMessageEvent):
         yield event.plain_result(self._gen_status_text())
+
+    @filter.command("米游社诊断")
+    async def cmd_diagnose(self, event: AstrMessageEvent):
+        """诊断各游戏 API 是否正常"""
+        try:
+            yield event.plain_result("正在诊断米游社 API...")
+            cats = list(GAMES.keys())
+            parts = [f"诊断结果 ({len(cats)} 个游戏):"]
+            for cat in cats:
+                try:
+                    posts = await self._fetch_game_posts(cat)
+                    emoji = GAMES[cat]["emoji"]
+                    if posts:
+                        parts.append(f"  {emoji} {cat}: {len(posts)} 条")
+                        for p in posts[:2]:
+                            parts.append(f"    - {p['title'][:50]}")
+                    else:
+                        parts.append(f"  {emoji} {cat}: 返回空 (可能被限制)")
+                except Exception as e:
+                    parts.append(f"  {cat}: 出错 {e}")
+            yield event.plain_result("\n".join(parts))
+        except Exception as e:
+            yield event.plain_result(f"诊断失败: {e}")
+            logger.error(traceback.format_exc())
 
     @filter.command_group("米游社管理")
     def admin_group(self):
