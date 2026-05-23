@@ -55,7 +55,7 @@ IMG_CDN = "https://upload-bbs.miyoushe.com"
     "astrbot_plugin_news_collector",
     "Hanako",
     "米游社新闻收集。从米游社 BBS 拉取米哈游官方新闻和公告，按目标个性化推送。",
-    "3.0.1",
+    "3.0.2",
 )
 class MiyoushePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -68,12 +68,19 @@ class MiyoushePlugin(Star):
         raw_groups: list = getattr(self.config, "groups", [])
         self.targets: List[Dict] = []
         default_cats = getattr(self.config, "categories", list(GAMES.keys()))
+        # 兼容：如果 categories 是单条字符串（非列表），拆成列表
+        if isinstance(default_cats, str):
+            default_cats = [c.strip() for c in default_cats.split(",")]
+        default_cats = [c for c in default_cats if c in GAMES] or list(GAMES.keys())[:3]
+
         for raw in raw_groups:
             parts = raw.rsplit(":", 1)
-            if len(parts) == 2 and any(c in GAMES for c in parts[1].split(",")):
-                target_id = parts[0]
-                cats = [c.strip() for c in parts[1].split(",") if c.strip() in GAMES]
-                self.targets.append({"id": target_id, "categories": cats or default_cats})
+            if len(parts) == 2:
+                candidate_cats = [c.strip() for c in parts[1].split(",") if c.strip() in GAMES]
+                if candidate_cats:
+                    self.targets.append({"id": parts[0], "categories": candidate_cats})
+                else:
+                    self.targets.append({"id": raw, "categories": default_cats})
             else:
                 self.targets.append({"id": raw, "categories": default_cats})
 
@@ -90,7 +97,7 @@ class MiyoushePlugin(Star):
         self._load_seen()
 
         logger.info(
-            f"[米游社] 插件 v3.0.1 已加载: 推送={self.push_time}, "
+            f"[米游社] 插件 v3.0.2 已加载: 推送={self.push_time}, "
             f"目标={len(self.targets)}个, LLM={'开' if self.enable_llm else '关'}"
         )
         for t in self.targets:
@@ -415,7 +422,7 @@ class MiyoushePlugin(Star):
         sec = self._calc_sleep()
         h, m = int(sec / 3600), int((sec % 3600) / 60)
         lines = [
-            "米游社新闻插件运行中 (v3.0)",
+            "米游社新闻插件运行中 (v3.0.2)",
             f"推送时间: {self.push_time}",
             f"推送目标: {len(self.targets)} 个",
         ]
