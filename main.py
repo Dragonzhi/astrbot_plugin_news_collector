@@ -303,15 +303,14 @@ class MiyousheCosPlugin(Star):
             cats = [c for c in default_cats if c in GAMES] or list(GAMES.keys())[:3]
             images = await self._collect_images(cats)
             if images:
-                # 按游戏分组发送
                 by_game: Dict[str, List[Dict]] = {}
                 for img in images:
                     by_game.setdefault(img["game"], []).append(img)
                 for game, imgs in by_game.items():
                     emoji = GAMES.get(game, {}).get("emoji", "🎮")
-                    yield event.plain_result(f"{emoji} {game} COS ({len(imgs)}张)")
+                    await event.send(event.plain_result(f"{emoji} {game} COS ({len(imgs)}张)"))
                     for img in imgs:
-                        yield MessageChain().file_image(img["local_path"])
+                        await event.send(MessageChain().file_image(img["local_path"]))
                         try:
                             os.remove(img["local_path"])
                         except Exception:
