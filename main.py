@@ -26,10 +26,22 @@ MIYOUSHE_API = "https://bbs-api.miyoushe.com/post/wapi/getForumPostList"
 
 # 游戏论坛配置
 GAMES = {
-    "原神": {"forum_id": 49, "emoji": "🌪️"},
-    "崩坏：星穹铁道": {"forum_id": 57, "emoji": "🚂"},
-    "绝区零": {"forum_id": 61, "emoji": "⚡"},
-    "崩坏3": {"forum_id": 31, "emoji": "💥"},
+    "原神": {
+        "forum_id": 49,  # COS 区
+        "emoji": "🌪️",
+    },
+    "崩坏：星穹铁道": {
+        "forum_id": 62,  # COS 区
+        "emoji": "🚂",
+    },
+    "绝区零": {
+        "forum_id": 65,  # COS 区
+        "emoji": "⚡",
+    },
+    "崩坏3": {
+        "forum_id": 4,   # 同人图（含 COS）
+        "emoji": "💥",
+    },
 }
 
 POSTS_PER_GAME = 5
