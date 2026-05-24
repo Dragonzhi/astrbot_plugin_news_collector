@@ -16,18 +16,18 @@
 
 ```bash
 cd AstrBot/data/plugins
-git clone https://github.com/your-username/astrbot_plugin_news_collector.git
+git clone https://github.com/Dragonzhi/astrbot_plugin_news_collector.git
 ```
 
 重启 AstrBot。
 
 ## 配置
 
-### 推送目标（关键）
+### 推送目标
 
 ```
-napcat:FriendMessage:你的QQ:原神,崩坏：星穹铁道,绝区零
-napcat:GroupMessage:群号:原神
+napcat:FriendMessage:你的QQ:原神,崩坏：星穹铁道
+napcat:GroupMessage:群号:原神,崩坏3
 ```
 
 ### 配置项
@@ -37,11 +37,6 @@ napcat:GroupMessage:群号:原神
 | `groups` | list | `[]` | 推送目标列表 |
 | `categories` | list | 原神,星铁,绝区零 | 默认游戏列表 |
 | `push_time` | string | `08:00` | 推送时间 HH:MM |
-| `enable_llm_organize` | bool | `true` | 是否用 LLM 整理 |
-| `llm_model` | string | `""` | LLM 模型 ID |
-| `dedup_ttl_days` | int | `7` | 去重保留天数 |
-| `enable_image_limit` | bool | `true` | 是否限制图片数量 |
-| `max_images` | int | `1` | 每条简报最大图片数（0=无限制）|
 
 ### 可用游戏
 
@@ -56,22 +51,29 @@ napcat:GroupMessage:群号:原神
 
 | 命令 | 说明 |
 |------|------|
-| `/米游社` | 手动拉取米游社最新帖子 |
-| `/米游社状态` | 查看插件状态 |
+| `/收图` | 手动收图发到当前对话 |
+| `/收图状态` | 查看插件状态 |
+| `/收图诊断` | 检查各游戏能拉到多少帖子多少图 |
 
 管理员命令：
 
 | 命令 | 说明 |
 |------|------|
-| `/米游社管理 push` | 手动推送给所有目标 |
-| `/米游社管理 status` | 查看详细状态 |
+| `/收图管理 push` | 手动推送给所有目标 |
+| `/收图管理 status` | 查看详细状态 |
 
 ## 数据来源
 
 - API：`bbs-api.miyoushe.com/post/wapi/getForumPostList`
-- 无需 API Key，无需登陆
-- 拉取的是米游社对应游戏论坛的最新帖子，包括官方公告、同人、讨论
+- 无需 API Key，无需登录
+- 拉取各游戏论坛最新帖子，筛选带图片的
 
-## 去重
+## 注意事项
 
-缓存文件：`data/plugins/astrbot_plugin_news_collector/_seen_news.json`
+- 每次最多推送 9 张图（QQ 单次消息上限）
+- 图片下载到临时目录，发送后自动清理
+- `_seen_news.json` 缓存文件已弃用，可删除
+
+## License
+
+AGPL-3.0
