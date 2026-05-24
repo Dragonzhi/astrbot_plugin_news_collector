@@ -28,19 +28,19 @@ MIYOUSHE_API = "https://bbs-api.miyoushe.com/post/wapi/getForumPostList"
 # 游戏论坛配置: {分类名: {forum_id, emoji}}
 GAMES = {
     "原神": {
-        "forum_id": 49,
+        "forum_id": 49,  # COS 区
         "emoji": "🌪️",
     },
     "崩坏：星穹铁道": {
-        "forum_id": 61,
+        "forum_id": 62,  # COS 区
         "emoji": "🚂",
     },
     "绝区零": {
-        "forum_id": 57,
+        "forum_id": 65,  # COS 区
         "emoji": "⚡",
     },
     "崩坏3": {
-        "forum_id": 1,
+        "forum_id": 4,   # 同人图（含 COS）
         "emoji": "💥",
     },
 }

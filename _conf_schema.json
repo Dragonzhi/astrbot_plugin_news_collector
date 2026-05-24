@@ -1,13 +1,13 @@
 {
   "groups": {
     "description": "推送目标（支持每目标指定游戏）",
-    "hint": "每个目标一行。格式：平台:类型:ID[:游戏1,游戏2]\n\n可用游戏：原神、崩坏：星穹铁道、绝区零、崩坏3\n\n示例：\nnapcat:FriendMessage:你的QQ:原神,崩坏：星穹铁道,绝区零\nnapcat:GroupMessage:群号:原神",
+    "hint": "每个目标一行。格式：平台:类型:ID[:游戏1,游戏2]\n\n可用游戏：原神(COS区)、崩坏：星穹铁道(COS区)、绝区零(COS区)、崩坏3(同人图)\n\n示例：\nnapcat:FriendMessage:你的QQ:原神,崩坏：星穹铁道,绝区零\nnapcat:GroupMessage:群号:原神",
     "type": "list",
     "default": []
   },
   "categories": {
     "description": "默认游戏列表",
-    "hint": "目标未指定时使用的默认游戏。可选：原神、崩坏：星穹铁道、绝区零、崩坏3",
+    "hint": "目标未指定时使用的默认游戏。可选：原神(COS区)、崩坏：星穹铁道(COS区)、绝区零(COS区)、崩坏3(同人图)",
     "type": "list",
     "default": ["原神", "崩坏：星穹铁道", "绝区零"]
   },
