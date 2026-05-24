@@ -53,7 +53,7 @@ MAX_IMGS_TOTAL = 9  # 总共最多几张（QQ一次最多9图）
     "astrbot_plugin_news_collector",
     "Hanako",
     "米游社 COS 收图。从米游社 BBS 收集各游戏 COS 图片并推送。",
-    "3.1.0",
+    "3.2.1",
     repo="https://github.com/Dragonzhi/astrbot_plugin_news_collector",
 )
 class MiyousheCosPlugin(Star):
