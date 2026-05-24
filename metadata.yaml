@@ -1,6 +1,6 @@
 name: astrbot_plugin_news_collector
-display_name: 米游社新闻
-desc: 从米游社 BBS 拉取米哈游官方新闻和公告（原神/星穹铁道/绝区零/崩坏3）。支持按目标个性化推送、LLM 整理摘要、自动去重。
-version: v3.1.1
+display_name: 米游社COS
+desc: 米游社 COS 收图。从米游社 BBS 收集各游戏 COS/同人图片并推送。
+version: v3.1.0
 author: Hanako
 repo: https://github.com/Dragonzhi/astrbot_plugin_news_collector

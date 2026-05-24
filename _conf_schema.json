@@ -1,13 +1,13 @@
 {
   "groups": {
-    "description": "推送目标（支持每目标指定游戏）",
-    "hint": "每个目标一行。格式：平台:类型:ID[:游戏1,游戏2]\n\n可用游戏：原神、崩坏：星穹铁道、绝区零、崩坏3\n\n示例：\nnapcat:FriendMessage:你的QQ:原神,崩坏：星穹铁道,绝区零\nnapcat:GroupMessage:群号:原神",
+    "description": "推送目标",
+    "hint": "每个目标一行。格式：平台:类型:ID[:游戏1,游戏2]\n\n示例：\nnapcat:FriendMessage:你的QQ:原神,崩坏：星穹铁道\nnapcat:GroupMessage:群号:原神,崩坏3",
     "type": "list",
     "default": []
   },
   "categories": {
     "description": "默认游戏列表",
-    "hint": "目标未指定时使用的默认游戏。可选：原神、崩坏：星穹铁道、绝区零、崩坏3",
+    "hint": "可选：原神、崩坏：星穹铁道、绝区零、崩坏3",
     "type": "list",
     "default": ["原神", "崩坏：星穹铁道", "绝区零"]
   },
@@ -16,35 +16,5 @@
     "hint": "格式 HH:MM，多个用逗号分隔",
     "type": "string",
     "default": "08:00"
-  },
-  "enable_llm_organize": {
-    "description": "LLM 智能整理",
-    "hint": "启用后使用 LLM 对帖子进行摘要整理，关闭则直接拼接",
-    "type": "bool",
-    "default": true
-  },
-  "llm_model": {
-    "description": "LLM 模型（可选）",
-    "hint": "留空则使用 AstrBot 默认模型",
-    "type": "string",
-    "default": ""
-  },
-  "dedup_ttl_days": {
-    "description": "去重保留天数",
-    "hint": "已推送帖子的去重保留天数",
-    "type": "int",
-    "default": 7
-  },
-  "enable_image_limit": {
-    "description": "限制图片数量",
-    "hint": "启用后每条简报最多只嵌入一张图片，避免消息过长。关闭则发送所有帖子封面图",
-    "type": "bool",
-    "default": true
-  },
-  "max_images": {
-    "description": "最大图片数量",
-    "hint": "限制每条简报嵌入的图片数量（仅在限制图片数量开启时生效）",
-    "type": "int",
-    "default": 1
   }
 }
