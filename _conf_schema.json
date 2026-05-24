@@ -16,5 +16,35 @@
     "hint": "格式 HH:MM，多个用逗号分隔",
     "type": "string",
     "default": "08:00"
+  },
+  "enable_llm_organize": {
+    "description": "LLM 智能整理",
+    "hint": "启用后使用 LLM 对帖子进行摘要整理，关闭则直接拼接标题+链接",
+    "type": "bool",
+    "default": true
+  },
+  "llm_model": {
+    "description": "LLM 模型（可选）",
+    "hint": "留空则使用 AstrBot 默认模型",
+    "type": "string",
+    "default": ""
+  },
+  "dedup_ttl_days": {
+    "description": "去重保留天数",
+    "hint": "已推送帖子的去重保留天数",
+    "type": "int",
+    "default": 7
+  },
+  "enable_image_limit": {
+    "description": "限制图片数量",
+    "hint": "启用后每条简报最多只嵌入指定数量图片，避免消息过长",
+    "type": "bool",
+    "default": true
+  },
+  "max_images": {
+    "description": "最大图片数量",
+    "hint": "限制每条简报嵌入的图片数量（仅在限制图片数量开启时生效，0=无限制）",
+    "type": "int",
+    "default": 1
   }
 }
