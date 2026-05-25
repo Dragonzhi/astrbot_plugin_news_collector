@@ -56,7 +56,7 @@ IMG_CDN = "https://upload-bbs.miyoushe.com"
     "astrbot_plugin_news_collector",
     "Hanako",
     "米游社新闻收集。从米游社 BBS 拉取米哈游官方新闻和公告，按目标个性化推送。",
-    "3.1.1",
+    "3.3.0",
     repo="https://github.com/Dragonzhi/astrbot_plugin_news_collector",
 )
 class MiyoushePlugin(Star):
@@ -105,7 +105,7 @@ class MiyoushePlugin(Star):
         self._load_seen()
 
         logger.info(
-            f"[米游社] 插件 v3.1.1 已加载: 推送={self.push_time}, "
+            f"[米游社] 插件 v3.3.0 已加载: 推送={self.push_time}, "
             f"目标={len(self.targets)}个, LLM={'开' if self.enable_llm else '关'}, "
             f"图片限制={'开' if self.enable_image_limit else '关'}(max={self.max_images})"
         )
@@ -490,7 +490,7 @@ class MiyoushePlugin(Star):
         sec = self._calc_sleep()
         h, m = int(sec / 3600), int((sec % 3600) / 60)
         lines = [
-            "米游社新闻插件运行中 (v3.1.1)",
+            "米游社新闻插件运行中 (v3.3.0)",
             f"推送时间: {self.push_time}",
             f"推送目标: {len(self.targets)} 个",
         ]
