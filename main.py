@@ -32,15 +32,15 @@ GAMES = {
         "emoji": "🌪️",
     },
     "崩坏：星穹铁道": {
-        "forum_id": 61,
+        "forum_id": 62,
         "emoji": "🚂",
     },
     "绝区零": {
-        "forum_id": 57,
+        "forum_id": 65,
         "emoji": "⚡",
     },
     "崩坏3": {
-        "forum_id": 1,
+        "forum_id": 4,
         "emoji": "💥",
     },
 }
