@@ -54,7 +54,7 @@ IMG_CDN = "https://upload-bbs.miyoushe.com"
     "astrbot_plugin_news_collector",
     "Hanako",
     "米游社 COS 收图。从米游社 BBS 收集各游戏 COS 帖子并推送。",
-    "3.2.1",
+    "3.2.2",
     repo="https://github.com/Dragonzhi/astrbot_plugin_news_collector",
 )
 class MiyousheCosPlugin(Star):
@@ -101,7 +101,7 @@ class MiyousheCosPlugin(Star):
         self._load_seen()
 
         logger.info(
-            f"[米游社COS] 插件 v3.2.1 已加载: 推送={self.push_time}, "
+            f"[米游社COS] 插件 v3.2.2 已加载: 推送={self.push_time}, "
             f"目标={len(self.targets)}个, LLM={'开' if self.enable_llm else '关'}, "
             f"图片限制={'开' if self.enable_image_limit else '关'}(max={self.max_images})"
         )
@@ -456,7 +456,7 @@ class MiyousheCosPlugin(Star):
         sec = self._calc_sleep()
         h, m = int(sec / 3600), int((sec % 3600) / 60)
         lines = [
-            "米游社 COS 收图插件运行中 (v3.2.1)",
+            "米游社 COS 收图插件运行中 (v3.2.2)",
             f"推送时间: {self.push_time}",
             f"推送目标: {len(self.targets)} 个",
         ]
