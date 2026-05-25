@@ -295,6 +295,15 @@ class MiyousheCosPlugin(Star):
                                         cover = vod.get("cover") or vod.get("screenshot") or ""
                                         if cover:
                                             break
+                        # 视频帖子：从 item.video 或 item.vod 取封面
+                        if not cover:
+                            video = item.get("video", {})
+                            if isinstance(video, dict):
+                                cover = video.get("cover", "")
+                        if not cover:
+                            vod = item.get("vod", {})
+                            if isinstance(vod, dict):
+                                cover = vod.get("cover", "")
 
                         if cover and not cover.startswith("http"):
                             cover = f"{IMG_CDN}/{cover.lstrip('/')}"
