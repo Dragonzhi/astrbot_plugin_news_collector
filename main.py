@@ -394,7 +394,8 @@ class MiyousheCosPlugin(Star):
             model=model,
         )
         header = f"米游社资讯 · {date_str}（{weekday_cn}）\n\n"
-        footer = f"\n\n> 内容来自米游社，截至 {now.strftime('%Y-%m-%d %H:%M')}"
+        now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+        footer = f"\n\n> 内容来自米游社，截至 {now_str}"
         llm_text = resp.completion_text.strip()
 
         chain = [Plain(header)]
