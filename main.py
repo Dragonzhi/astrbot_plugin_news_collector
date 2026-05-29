@@ -96,6 +96,9 @@ class MiyoushePlugin(Star):
         if self.max_images < 0:
             self.max_images = 1
 
+        # LLM 链接配置
+        self.llm_include_links = getattr(self.config, "llm_include_links", True)
+
         # 去重
         self._seen_file = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "_seen_news.json"
@@ -105,7 +108,7 @@ class MiyoushePlugin(Star):
         self._load_seen()
 
         logger.info(
-            f"[米游社] 插件 v3.3.2 已加载: 推送={self.push_time}, "
+            f"[米游社] 插件 v3.3.3 已加载: 推送={self.push_time}, "
             f"目标={len(self.targets)}个, LLM={'开' if self.enable_llm else '关'}, "
             f"图片限制={'开' if self.enable_image_limit else '关'}(max={self.max_images})"
         )
@@ -379,7 +382,7 @@ class MiyoushePlugin(Star):
                     parts.append(f"  摘要: {p['snippet'][:200]}")
                 if p.get("time"):
                     parts.append(f"  时间: {p['time']}")
-                if p.get("url"):
+                if self.llm_include_links and p.get("url"):
                     parts.append(f"  URL: {p['url']}")
 
         cat_lines = []
@@ -389,6 +392,8 @@ class MiyoushePlugin(Star):
         cats_str = "\n".join(cat_lines)
         first_emoji = GAMES.get(list(target_data.keys())[0], {}).get("emoji", "🎮") if target_data else "🎮"
 
+        link_requirement = "4. 保留帖子链接" if self.llm_include_links else ""
+        link_example = "\n🔗 https://..." if self.llm_include_links else ""
         system_prompt = f"""今天是 {date_str}（{weekday_cn}）。
 
 你是一个游戏资讯助手。根据米游社的帖子数据，生成一份游戏资讯简报。
@@ -398,20 +403,18 @@ class MiyoushePlugin(Star):
 2. 按游戏分类组织：
 {cats_str}
 3. 每个帖子给出简要摘要（1-2句话），让读者快速了解内容
-4. 保留帖子链接
+{link_requirement}
 
 【输出格式 - QQ 友好】
 {first_emoji} 原神
 
 🔹 标题
-摘要...
-🔗 https://...
+摘要...{link_example}
 
 {first_emoji} 崩坏：星穹铁道
 
 🔹 标题
-摘要...
-🔗 https://..."""
+摘要...{link_example}"""
 
         model = self.llm_model if self.llm_model else None
         resp = await provider.text_chat(

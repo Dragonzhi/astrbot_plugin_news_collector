@@ -46,5 +46,11 @@
     "hint": "限制每条简报嵌入的图片数量（仅在限制图片数量开启时生效）",
     "type": "int",
     "default": 1
+  },
+  "llm_include_links": {
+    "description": "LLM 输出包含链接",
+    "hint": "开启后 LLM 整理的简报中会保留帖子链接，关闭则不输出链接",
+    "type": "bool",
+    "default": true
   }
 }
